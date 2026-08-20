@@ -1,0 +1,48 @@
+app:
+  env: dev
+  version: "0.1.0"
+  replicaCount: 1
+
+  image:
+    name: ""
+    tag: latest
+    pullPolicy: Always
+    pullSecret:
+      enabled: false
+      secret: ""
+
+  service:
+    port: 8080
+
+  baseHref: /
+
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"
+
+  probes:
+    liveness:
+      enabled: true
+      url: /health
+      initialDelaySeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      url: /health
+      initialDelaySeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 3
+      periodSeconds: 10
+
+  ingress:
+    enabled: false
+    hosts: ""
+    gateways: ""
+
+serviceaccount:
+  create: false

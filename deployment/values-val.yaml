@@ -1,0 +1,47 @@
+app:
+  env: val
+  replicaCount: 1
+
+  image:
+    name: "atom-ltm-dashboard"
+    tag: "1.0-SNAPSHOT"
+    pullPolicy: Always
+    pullSecret:
+      enabled: false
+      secret: ""
+
+  service:
+    port: 8080
+
+  baseHref: /atom-ltm-dashboard
+
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "300m"
+
+  probes:
+    liveness:
+      enabled: true
+      url: /atom-ltm-dashboard/health
+      initialDelaySeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      url: /atom-ltm-dashboard/health
+      initialDelaySeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 3
+      periodSeconds: 10
+
+  ingress:
+    enabled: true
+    hosts: "gateway-val.after-val.eu.airbus.corp"
+    gateways: "istio-system/gateway-val"
+
+serviceaccount:
+  create: false

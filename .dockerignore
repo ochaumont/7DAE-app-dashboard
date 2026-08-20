@@ -1,0 +1,12 @@
+# NOTE: do NOT ignore `out/` — the Dockerfile copies it into nginx
+# (COPY out /usr/share/nginx/html). It is the build artifact to ship.
+node_modules
+.next
+dist
+.git
+.gitignore
+Dockerfile
+.dockerignore
+deployment
+*.md
+.env*.local

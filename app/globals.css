@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:wght@300;400;500;600&display=swap");
+@import "../styles/themes/industrial-premium.css";
+@import "../styles/themes/map-first.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "Georgia", serif;
+  --radius-card: 0.75rem;
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0a0e1a;
+  --color-surface: #11172a;
+  --color-surface-2: #1a2238;
+  --color-fg: #e8eef9;
+  --color-muted: #7a8aa8;
+  --color-accent: #5b8def;
+  --color-accent-fg: #ffffff;
+  --color-border: #1f2942;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+}
+
+:root[data-theme="light"] {
+  --color-bg: #f6f8fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef2f8;
+  --color-fg: #0a0e1a;
+  --color-muted: #5a6679;
+  --color-accent: #2563eb;
+  --color-accent-fg: #ffffff;
+  --color-border: #d6dde8;
+  --color-success: #047857;
+  --color-warning: #b45309;
+  --color-danger: #b91c1c;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.skeleton-pulse {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/*
+ * Default focus ring for keyboard navigation. Applies to every interactive
+ * element unless a component overrides it explicitly. Mouse focus stays
+ * untouched (browser default) thanks to `:focus-visible`.
+ */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

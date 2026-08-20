@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Release.Name }}-{{ .Values.app.env }}"
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: "{{ .Release.Name }}-{{ .Values.app.env }}-app"
+  template:
+    metadata:
+      annotations:
+        deploymentTime: {{ dateInZone "2006-01-02T15:04:05Z" (now) "UTC" | quote }}
+      labels:
+        app: "{{ .Release.Name }}-{{ .Values.app.env }}-app"
+        env: {{ .Values.app.env }}
+        app.kubernetes.io/name: {{ .Release.Name }}
+        app.kubernetes.io/version: {{ .Values.app.image.tag }}
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/managed-by: helm
+        sidecar.istio.io/inject: "false"
+    spec:
+{{- if .Values.serviceaccount.create }}
+      serviceAccountName: {{ .Release.Name }}-account
+      automountServiceAccountToken: false
+{{- end }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+{{- if .Values.app.image.pullSecret.enabled }}
+      imagePullSecrets:
+        - name: {{ .Values.app.image.pullSecret.secret }}
+{{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.app.image.name }}:{{ .Values.app.image.tag }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.service.port }}
+              protocol: TCP
+          env:
+            - name: SERVER_PORT
+              value: {{ .Values.app.service.port | quote }}
+          resources:
+            requests:
+              memory: {{ .Values.app.requests.memory }}
+              cpu: {{ .Values.app.requests.cpu }}
+            limits:
+              memory: {{ .Values.app.limits.memory }}
+              cpu: {{ .Values.app.limits.cpu }}
+{{- if .Values.app.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: {{ .Values.app.probes.liveness.url }}
+              port: {{ .Values.app.service.port }}
+            initialDelaySeconds: {{ .Values.app.probes.liveness.initialDelaySeconds }}
+            timeoutSeconds: {{ .Values.app.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.liveness.failureThreshold }}
+            periodSeconds: {{ .Values.app.probes.liveness.periodSeconds }}
+{{- end }}
+{{- if .Values.app.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: {{ .Values.app.probes.readiness.url }}
+              port: {{ .Values.app.service.port }}
+            initialDelaySeconds: {{ .Values.app.probes.readiness.initialDelaySeconds }}
+            timeoutSeconds: {{ .Values.app.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.readiness.failureThreshold }}
+            periodSeconds: {{ .Values.app.probes.readiness.periodSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: nginx-conf-d
+              mountPath: /etc/nginx/conf.d
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+
+      volumes:
+        - name: nginx-conf-d
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
