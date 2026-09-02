@@ -1,10 +1,11 @@
 export type LinkedResourceKind = "video" | "slides" | "docs" | "sheets";
 
-const FILE_ID_PATTERN = /\/file\/d\/([a-zA-Z0-9_-]+)(?:\/|$)/;
+const FILE_ID_PATTERN = /\/file\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)(?:\/|$)/;
 
 /** Extracts a Google Drive file ID from a share/view/preview URL, independent
- * of host (covers proxied domains like drive.google.com.rproxy.goskope.com)
- * and of trailing suffix (/view, /preview, ?usp=..., or none). */
+ * of host (covers proxied domains like drive.google.com.rproxy.goskope.com),
+ * of an optional /u/<n>/ account-selector segment, and of trailing suffix
+ * (/view, /preview, ?usp=..., or none). */
 export function extractGoogleDriveFileId(url: string): string | null {
   if (!url) return null;
   let pathname: string;
@@ -38,17 +39,17 @@ type DocMatcher = {
 const DOC_MATCHERS: DocMatcher[] = [
   {
     kind: "slides",
-    pattern: /\/presentation\/d\/([a-zA-Z0-9_-]+)/,
+    pattern: /\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/,
     embed: (id) => `https://docs.google.com/presentation/d/${id}/embed`,
   },
   {
     kind: "docs",
-    pattern: /\/document\/d\/([a-zA-Z0-9_-]+)/,
+    pattern: /\/document\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/,
     embed: (id) => `https://docs.google.com/document/d/${id}/preview`,
   },
   {
     kind: "sheets",
-    pattern: /\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/,
+    pattern: /\/spreadsheets\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/,
     embed: (id) => `https://docs.google.com/spreadsheets/d/${id}/preview`,
   },
 ];

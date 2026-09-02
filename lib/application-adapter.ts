@@ -12,32 +12,37 @@ const DEFAULT_DOC_NAMES: Record<"slides" | "docs" | "sheets", string> = {
   sheets: "Feuille de calcul",
 };
 
-/** Videos are identified by documentType (backend-controlled convention,
- * same pattern as LabTestMean photos). Slides/Docs/Sheets are detected from
- * the URL shape instead, independent of documentType — we don't control the
- * backend's category labels and can't rely on a specific value for these. */
+/** The URL shape decides the kind, not `documentType` — that backend field
+ * is a manual category label we don't control and can't rely on (e.g. a
+ * Slides deck has been seen tagged `documentType: "video"` in real data).
+ * Slides/Docs/Sheets are detected first from the URL; anything left is
+ * treated as a Drive file ("video") only if `documentType` says so, or if
+ * the URL itself looks like a Drive file link. */
 function toLinkedResources(dto: ApplicationDto): Application["linkedResources"] {
   return (dto.documentRefs ?? [])
     .filter((d): d is NonNullable<typeof d> => !!d && !!d.url)
     .map((d): Application["linkedResources"][number] | null => {
-      if (d.documentType?.toLowerCase() === "video") {
+      const detected = detectGoogleDocFromUrl(d.url);
+      if (detected) {
+        return {
+          id: d.id,
+          name: d.name?.trim() || DEFAULT_DOC_NAMES[detected.kind],
+          url: d.url,
+          kind: detected.kind,
+          embedUrl: detected.embedUrl,
+        };
+      }
+      const embedUrl = getGoogleDriveEmbedUrl(d.url);
+      if (d.documentType?.toLowerCase() === "video" || embedUrl) {
         return {
           id: d.id,
           name: d.name?.trim() || "Vidéo",
           url: d.url,
           kind: "video",
-          embedUrl: getGoogleDriveEmbedUrl(d.url),
+          embedUrl,
         };
       }
-      const detected = detectGoogleDocFromUrl(d.url);
-      if (!detected) return null;
-      return {
-        id: d.id,
-        name: d.name?.trim() || DEFAULT_DOC_NAMES[detected.kind],
-        url: d.url,
-        kind: detected.kind,
-        embedUrl: detected.embedUrl,
-      };
+      return null;
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
 }
