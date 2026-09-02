@@ -5,16 +5,14 @@ import { useSearchParams, notFound } from "next/navigation";
 import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import ApplicationHeader from "@/components/ApplicationHeader";
-import Gallery, { type GalleryVideoOverride } from "@/components/Gallery";
+import Gallery, { type GalleryEmbedOverride } from "@/components/Gallery";
 import ManagerCard from "@/components/ManagerCard";
 import Section from "@/components/detail/Section";
-import VideoIcon from "@/components/icons/VideoIcon";
 import { getApplicationByExternalId } from "@/lib/applications";
 import { SWR_KEY_APPLICATIONS } from "@/lib/useApplications";
 import { getCatalogueState } from "@/lib/catalogueFilters";
-import { getGoogleDriveEmbedUrl } from "@/lib/gdrive";
 import { PROVIDER_TYPE_LABELS } from "@/lib/labels";
-import type { Application, VideoRef } from "@/lib/types";
+import type { Application, LinkedResourceRef } from "@/lib/types";
 
 function isValidUrl(value: string | null): boolean {
   if (!value) return false;
@@ -68,7 +66,9 @@ export default function ApplicationDetailClient() {
   const searchParams = useSearchParams();
   const externalId = searchParams.get("id") ?? "";
   const { cache } = useSWRConfig();
-  const [activeVideo, setActiveVideo] = useState<VideoRef | null>(null);
+  const [activeResource, setActiveResource] = useState<LinkedResourceRef | null>(
+    null,
+  );
 
   // Cache-first: if the catalogue/map already loaded the list, serve the item
   // from memory (no network). `fallbackData` makes SWR skip the fetch entirely.
@@ -93,11 +93,11 @@ export default function ApplicationDetailClient() {
   const backPage = getCatalogueState().page;
   const backHref = backPage > 1 ? `/?page=${backPage}` : "/";
 
-  const videoOverride: GalleryVideoOverride = activeVideo
+  const resourceOverride: GalleryEmbedOverride = activeResource
     ? {
-        name: activeVideo.name,
-        embedUrl: getGoogleDriveEmbedUrl(activeVideo.url),
-        rawUrl: activeVideo.url,
+        name: activeResource.name,
+        embedUrl: activeResource.embedUrl,
+        rawUrl: activeResource.url,
       }
     : null;
 
@@ -116,8 +116,11 @@ export default function ApplicationDetailClient() {
             photos={app.photos}
             name={app.name}
             externalId={app.externalId}
-            videoOverride={videoOverride}
-            onPhotoSelect={() => setActiveVideo(null)}
+            resources={app.linkedResources}
+            activeResourceId={activeResource?.id ?? null}
+            onSelectResource={(resource) => setActiveResource(resource)}
+            resourceOverride={resourceOverride}
+            onPhotoSelect={() => setActiveResource(null)}
           />
           {app.description && (
             <Section title="Description">
@@ -195,36 +198,6 @@ export default function ApplicationDetailClient() {
         </Section>
       </div>
 
-      {app.videos.length > 0 && (
-        <div className="mt-8">
-          <Section title="Videos">
-            <div className="flex flex-wrap gap-3">
-              {app.videos.map((video) => {
-                const active = activeVideo?.id === video.id;
-                return (
-                  <button
-                    key={video.id}
-                    type="button"
-                    onClick={() => setActiveVideo(video)}
-                    title={video.name}
-                    className={`flex items-center gap-2 px-3 py-2 rounded border-2 transition-all max-w-[220px] bg-surface-2 ${
-                      active
-                        ? "border-accent opacity-100"
-                        : "border-transparent opacity-70 hover:opacity-100"
-                    }`}
-                  >
-                    <VideoIcon
-                      size={18}
-                      className={active ? "text-accent" : "text-muted"}
-                    />
-                    <span className="text-xs truncate">{video.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Section>
-        </div>
-      )}
     </main>
   );
 }

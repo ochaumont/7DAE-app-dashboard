@@ -43,9 +43,20 @@ export type Photo = {
 
 export type CoverPhoto = { id: string; uri: string };
 
-/** A video document attached to an application (documentRefs entries with
- * documentType === "video"), streamed via Google Drive /preview iframe. */
-export type VideoRef = { id: string; name: string; url: string };
+export type LinkedResourceKind = "video" | "slides" | "docs" | "sheets";
+
+/** A video (documentRefs entries with documentType === "video") or a Google
+ * Docs/Slides/Sheets document (detected from the URL shape, independent of
+ * documentType) attached to an application, embeddable via Google's own
+ * preview/embed iframes. `embedUrl` is null when the file ID couldn't be
+ * extracted from `url` — callers fall back to a plain "Open" link. */
+export type LinkedResourceRef = {
+  id: string;
+  name: string;
+  url: string;
+  kind: LinkedResourceKind;
+  embedUrl: string | null;
+};
 
 export type Person = {
   name: string;
@@ -90,5 +101,5 @@ export type Application = {
   gDrivePath: string | null;
   coverPhoto: CoverPhoto | null;
   photos: Photo[];
-  videos: VideoRef[];
+  linkedResources: LinkedResourceRef[];
 };

@@ -1,21 +1,45 @@
 import type { ApplicationDto, FactsheetRef } from "./atom-api";
+import { detectGoogleDocFromUrl, getGoogleDriveEmbedUrl } from "./google-embed";
 import type { Application, Person } from "./types";
 
 function toPerson(ref: FactsheetRef): Person {
   return { name: ref.name, email: ref.externalId };
 }
 
-function toVideos(dto: ApplicationDto): Application["videos"] {
+const DEFAULT_DOC_NAMES: Record<"slides" | "docs" | "sheets", string> = {
+  slides: "Présentation",
+  docs: "Document",
+  sheets: "Feuille de calcul",
+};
+
+/** Videos are identified by documentType (backend-controlled convention,
+ * same pattern as LabTestMean photos). Slides/Docs/Sheets are detected from
+ * the URL shape instead, independent of documentType — we don't control the
+ * backend's category labels and can't rely on a specific value for these. */
+function toLinkedResources(dto: ApplicationDto): Application["linkedResources"] {
   return (dto.documentRefs ?? [])
-    .filter(
-      (d): d is NonNullable<typeof d> =>
-        !!d && d.documentType?.toLowerCase() === "video" && !!d.url,
-    )
-    .map((d) => ({
-      id: d.id,
-      name: d.name?.trim() || "Vidéo",
-      url: d.url,
-    }));
+    .filter((d): d is NonNullable<typeof d> => !!d && !!d.url)
+    .map((d): Application["linkedResources"][number] | null => {
+      if (d.documentType?.toLowerCase() === "video") {
+        return {
+          id: d.id,
+          name: d.name?.trim() || "Vidéo",
+          url: d.url,
+          kind: "video",
+          embedUrl: getGoogleDriveEmbedUrl(d.url),
+        };
+      }
+      const detected = detectGoogleDocFromUrl(d.url);
+      if (!detected) return null;
+      return {
+        id: d.id,
+        name: d.name?.trim() || DEFAULT_DOC_NAMES[detected.kind],
+        url: d.url,
+        kind: detected.kind,
+        embedUrl: detected.embedUrl,
+      };
+    })
+    .filter((v): v is NonNullable<typeof v> => v !== null);
 }
 
 function toLifecycle(dto: ApplicationDto): Application["lifecycle"] {
@@ -68,6 +92,6 @@ export function toApplication(dto: ApplicationDto): Application {
     gDrivePath: dto.gDrivePath?.trim() || null,
     coverPhoto: null,
     photos: [],
-    videos: toVideos(dto),
+    linkedResources: toLinkedResources(dto),
   };
 }

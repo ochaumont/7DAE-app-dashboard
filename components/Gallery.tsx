@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Photo } from "@/lib/types";
+import type { Photo, LinkedResourceRef } from "@/lib/types";
 import { usePhoto } from "@/lib/usePhoto";
 import { generateApplicationCoverDataUri } from "@/lib/generated-cover";
+import DocKindIcon from "./icons/DocKindIcon";
+import VideoIcon from "./icons/VideoIcon";
 import PanoramaClient from "./PanoramaClient";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_HREF ?? "";
@@ -88,11 +90,47 @@ function Thumbnail({
   );
 }
 
-export type GalleryVideoOverride = {
+function ResourceThumbnail({
+  resource,
+  active,
+  onClick,
+}: {
+  resource: LinkedResourceRef;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={resource.name}
+      className={`relative aspect-square rounded overflow-hidden border-2 transition-all flex flex-col items-center justify-center gap-1 bg-surface-2 px-1 ${
+        active
+          ? "border-accent opacity-100"
+          : "border-transparent opacity-60 hover:opacity-100"
+      }`}
+      type="button"
+    >
+      {resource.kind === "video" ? (
+        <VideoIcon size={20} className={active ? "text-accent" : "text-muted"} />
+      ) : (
+        <DocKindIcon
+          kind={resource.kind}
+          size={20}
+          className={active ? undefined : "opacity-70"}
+        />
+      )}
+      <span className="text-[9px] leading-tight text-center truncate w-full">
+        {resource.name}
+      </span>
+    </button>
+  );
+}
+
+export type GalleryEmbedOverride = {
   name: string;
-  /** Canonical /preview embed URL, or null if extraction failed (fallback link). */
+  /** Canonical embed URL, or null if extraction failed (fallback link). */
   embedUrl: string | null;
-  /** Raw documentRef.url, used for the "Open video" fallback link. */
+  /** Raw documentRef.url, used for the "Open" fallback link. */
   rawUrl: string;
 } | null;
 
@@ -100,13 +138,19 @@ export default function Gallery({
   photos,
   name,
   externalId,
-  videoOverride = null,
+  resources = [],
+  activeResourceId = null,
+  onSelectResource,
+  resourceOverride = null,
   onPhotoSelect,
 }: {
   photos: Photo[];
   name: string;
   externalId: string;
-  videoOverride?: GalleryVideoOverride;
+  resources?: LinkedResourceRef[];
+  activeResourceId?: string | null;
+  onSelectResource?: (resource: LinkedResourceRef) => void;
+  resourceOverride?: GalleryEmbedOverride;
   onPhotoSelect?: () => void;
 }) {
   const [active, setActive] = useState(0);
@@ -123,48 +167,58 @@ export default function Gallery({
     onPhotoSelect?.();
   };
 
-  const thumbnailStrip = isSimulated ? (
+  const resourceThumbnails = resources.map((resource) => (
+    <ResourceThumbnail
+      key={resource.id}
+      resource={resource}
+      active={activeResourceId === resource.id}
+      onClick={() => onSelectResource?.(resource)}
+    />
+  ));
+
+  const showThumbnailStrip = isSimulated || photos.length > 1 || resources.length > 0;
+  const thumbnailStrip = showThumbnailStrip ? (
     <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
-      {simulatedPhotos.map((src, i) => (
-        <SimulatedThumbnail
-          key={src}
-          src={src}
-          active={i === active}
-          onClick={() => selectPhoto(i)}
-        />
-      ))}
-    </div>
-  ) : photos.length > 1 ? (
-    <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
-      {photos.map((p, i) => (
-        <Thumbnail
-          key={i}
-          photo={p}
-          active={i === active}
-          onClick={() => selectPhoto(i)}
-        />
-      ))}
+      {isSimulated
+        ? simulatedPhotos.map((src, i) => (
+            <SimulatedThumbnail
+              key={src}
+              src={src}
+              active={i === active}
+              onClick={() => selectPhoto(i)}
+            />
+          ))
+        : photos.length > 1 &&
+          photos.map((p, i) => (
+            <Thumbnail
+              key={i}
+              photo={p}
+              active={i === active}
+              onClick={() => selectPhoto(i)}
+            />
+          ))}
+      {resourceThumbnails}
     </div>
   ) : null;
 
   let heroContent: React.ReactNode;
-  if (videoOverride) {
-    heroContent = videoOverride.embedUrl ? (
+  if (resourceOverride) {
+    heroContent = resourceOverride.embedUrl ? (
       <iframe
-        src={videoOverride.embedUrl}
+        src={resourceOverride.embedUrl}
         className="w-full h-full"
         allow="autoplay"
-        title={videoOverride.name}
+        title={resourceOverride.name}
       />
     ) : (
       <div className="w-full h-full flex items-center justify-center p-4 text-center">
         <a
-          href={videoOverride.rawUrl}
+          href={resourceOverride.rawUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline break-all"
         >
-          Ouvrir la vidéo
+          Ouvrir
         </a>
       </div>
     );
