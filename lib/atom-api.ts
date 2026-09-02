@@ -39,6 +39,16 @@ export type ApplicationDto = {
     | "businessOperational"
     | "administrativeService"
     | null;
+  airbusSite?: string | null;
+  functionalSuitability?: string | null;
+  technicalSuitability?: string | null;
+  programCategory?: string | null;
+  partIS?: string | null;
+  obsoRiskStatus?: string | null;
+  BRDURL?: string | null;
+  ARDURL?: string | null;
+  confluenceURL?: string | null;
+  gDrivePath?: string | null;
   providerType: "airbus" | "external" | null;
   operator: string | null;
   deptProviders: string[];

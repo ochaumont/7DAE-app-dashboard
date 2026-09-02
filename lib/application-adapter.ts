@@ -5,6 +5,19 @@ function toPerson(ref: FactsheetRef): Person {
   return { name: ref.name, email: ref.externalId };
 }
 
+function toVideos(dto: ApplicationDto): Application["videos"] {
+  return (dto.documentRefs ?? [])
+    .filter(
+      (d): d is NonNullable<typeof d> =>
+        !!d && d.documentType?.toLowerCase() === "video" && !!d.url,
+    )
+    .map((d) => ({
+      id: d.id,
+      name: d.name?.trim() || "Vidéo",
+      url: d.url,
+    }));
+}
+
 function toLifecycle(dto: ApplicationDto): Application["lifecycle"] {
   const lifecycle: Application["lifecycle"] = {};
   if (dto.lifeCycle_phaseIn) lifecycle.phaseIn = dto.lifeCycle_phaseIn;
@@ -43,7 +56,18 @@ export function toApplication(dto: ApplicationDto): Application {
       : null,
     completion: dto.completion,
     businessCriticality: dto.businessCriticality ?? "NA",
+    airbusSite: dto.airbusSite?.trim() || null,
+    functionalSuitability: dto.functionalSuitability?.trim() || null,
+    technicalSuitability: dto.technicalSuitability?.trim() || null,
+    programCategory: dto.programCategory?.trim() || null,
+    partIS: dto.partIS?.trim() || null,
+    obsoRiskStatus: dto.obsoRiskStatus?.trim() || null,
+    BRDURL: dto.BRDURL?.trim() || null,
+    ARDURL: dto.ARDURL?.trim() || null,
+    confluenceURL: dto.confluenceURL?.trim() || null,
+    gDrivePath: dto.gDrivePath?.trim() || null,
     coverPhoto: null,
     photos: [],
+    videos: toVideos(dto),
   };
 }
