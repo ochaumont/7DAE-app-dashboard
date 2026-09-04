@@ -14,7 +14,7 @@ export default function ApplicationCard({
 }: {
   application: Application;
 }) {
-  const realCover = usePhoto(
+  const { url: realCover } = usePhoto(
     application.coverPhoto?.id ?? "",
     application.coverPhoto?.uri ?? "",
   );

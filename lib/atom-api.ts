@@ -15,6 +15,7 @@ export type DocumentRef = {
   name: string | null;
   documentType: string;
   url: string;
+  origin?: string | null;
 };
 
 export type ApplicationDto = {
@@ -253,4 +254,25 @@ export async function fetchApplication(
       `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications/${encodeURIComponent(externalId)}`,
     );
   return (await res.json()) as ApplicationDto;
+}
+
+/** One entry of `GET /api/infos/applications/{externalId}/links`: a neighbouring
+ * application plus the direction data flows between it and the queried one.
+ * `direction` is deliberately typed loose — the backend vocabulary
+ * (`inbound` / `outbound` / `both`) is normalised by the adapter, so an
+ * unexpected value degrades gracefully instead of breaking the build. */
+export type ApplicationLinkDto = {
+  application: { id: string; externalId: string; name: string | null };
+  direction: string | null;
+};
+
+export async function fetchApplicationLinks(
+  externalId: string,
+): Promise<ApplicationLinkDto[]> {
+  const url = `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications/${encodeURIComponent(externalId)}/links`;
+  const res = await atomFetch(url, { next: { revalidate: 60 } });
+  // An application with no known interfaces may 404 rather than return [].
+  if (res.status === 404) return [];
+  if (!res.ok) httpError(res, url);
+  return (await res.json()) as ApplicationLinkDto[];
 }

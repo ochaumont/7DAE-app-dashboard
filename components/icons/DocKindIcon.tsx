@@ -27,7 +27,7 @@ export default function DocKindIcon({ kind, size = 14, className }: Props) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className={clsx(COLOR_CLASS[kind], className)}
+      className={clsx(className ?? COLOR_CLASS[kind])}
     >
       <rect x="4" y="3" width="16" height="18" rx="2" />
       <line x1="8" y1="8" x2="16" y2="8" />

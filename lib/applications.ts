@@ -1,7 +1,13 @@
-import { fetchApplication, fetchApplications } from "./atom-api";
+import {
+  fetchApplication,
+  fetchApplicationLinks,
+  fetchApplications,
+} from "./atom-api";
 import { toApplication } from "./application-adapter";
+import { toApplicationLinks } from "./application-links-adapter";
 import type {
   Application,
+  ApplicationLink,
   ApplicationCategory,
   ApplicationStatus,
   BusinessCriticality,
@@ -18,6 +24,13 @@ export async function getApplicationByExternalId(
 ): Promise<Application | null> {
   const dto = await fetchApplication(externalId);
   return dto ? toApplication(dto) : null;
+}
+
+export async function getApplicationLinks(
+  externalId: string,
+): Promise<ApplicationLink[]> {
+  const dtos = await fetchApplicationLinks(externalId);
+  return toApplicationLinks(dtos, externalId);
 }
 
 /** Sentinel option in the Portfolio filter that matches Applications with `portfolio === null`. */

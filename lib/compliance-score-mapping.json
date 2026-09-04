@@ -1,0 +1,14 @@
+{
+  "functionalSuitability": {
+    "fullyAppropriate": 5,
+    "adequate": 4,
+    "unreasonable": 2,
+    "inappropriate": 1
+  },
+  "technicalSuitability": {
+    "fullyAppropriate": 5,
+    "adequate": 4,
+    "unreasonable": 2,
+    "inappropriate": 1
+  }
+}

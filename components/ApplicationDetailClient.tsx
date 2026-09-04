@@ -6,45 +6,16 @@ import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import ApplicationHeader from "@/components/ApplicationHeader";
 import Gallery, { type GalleryEmbedOverride } from "@/components/Gallery";
-import ManagerCard from "@/components/ManagerCard";
-import Section from "@/components/detail/Section";
+import Tabs, { type TabItem } from "@/components/detail/Tabs";
+import IdentityTab from "@/components/detail/IdentityTab";
+import AccountabilityTab from "@/components/detail/AccountabilityTab";
+import ComplianceTab from "@/components/detail/ComplianceTab";
+import DocumentationTab from "@/components/detail/DocumentationTab";
+import InContextTab from "@/components/detail/InContextTab";
 import { getApplicationByExternalId } from "@/lib/applications";
 import { SWR_KEY_APPLICATIONS } from "@/lib/useApplications";
 import { getCatalogueState } from "@/lib/catalogueFilters";
-import { PROVIDER_TYPE_LABELS } from "@/lib/labels";
 import type { Application, LinkedResourceRef } from "@/lib/types";
-
-function isValidUrl(value: string | null): boolean {
-  if (!value) return false;
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function UrlField({ label, value }: { label: string; value: string | null }) {
-  return (
-    <>
-      <dt className="text-muted">{label}</dt>
-      <dd>
-        {isValidUrl(value) ? (
-          <a
-            href={value!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent hover:underline break-all"
-          >
-            {value}
-          </a>
-        ) : (
-          value || "—"
-        )}
-      </dd>
-    </>
-  );
-}
 
 function DetailSkeleton() {
   return (
@@ -101,6 +72,30 @@ export default function ApplicationDetailClient() {
       }
     : null;
 
+  const tabs: TabItem[] = [
+    { id: "identity", label: "Identity", content: <IdentityTab application={app} /> },
+    {
+      id: "accountability",
+      label: "Accountability",
+      content: <AccountabilityTab application={app} />,
+    },
+    {
+      id: "compliance",
+      label: "Compliance",
+      content: <ComplianceTab application={app} />,
+    },
+    {
+      id: "documentation",
+      label: "Documentation",
+      content: <DocumentationTab application={app} />,
+    },
+    {
+      id: "in-context",
+      label: "In Context",
+      content: <InContextTab application={app} />,
+    },
+  ];
+
   return (
     <main className="px-4 md:px-8 py-8 max-w-[1400px] mx-auto">
       <Link
@@ -122,82 +117,12 @@ export default function ApplicationDetailClient() {
             resourceOverride={resourceOverride}
             onPhotoSelect={() => setActiveResource(null)}
           />
-          {app.description && (
-            <Section title="Description">
-              <p className="text-base leading-relaxed text-fg/90">
-                {app.description}
-              </p>
-            </Section>
-          )}
+          <Tabs items={tabs} />
         </div>
         <div className="space-y-6">
           <ApplicationHeader application={app} />
-          <Section title="Portfolio">
-            <p className="text-sm text-fg/90">
-              {app.portfolio ? app.portfolio.name : "No portfolio"}
-            </p>
-          </Section>
-          <Section title="Operator & Provider">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm max-w-detail-info">
-              <dt className="text-muted">Operator</dt>
-              <dd>{app.operator ?? "—"}</dd>
-              <dt className="text-muted">Provider type</dt>
-              <dd>{PROVIDER_TYPE_LABELS[app.providerType]}</dd>
-              <dt className="text-muted">Dept Provider</dt>
-              <dd>
-                {app.deptProviders.length > 0
-                  ? app.deptProviders.join(", ")
-                  : "—"}
-              </dd>
-              <dt className="text-muted">Version</dt>
-              <dd>{app.version ?? "—"}</dd>
-              <dt className="text-muted">Completion</dt>
-              <dd>{app.completion}%</dd>
-            </dl>
-          </Section>
         </div>
       </div>
-
-      {(app.manager || app.solutionArchitect) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
-          <ManagerCard
-            name={app.manager?.name ?? "Not set"}
-            email={app.manager?.email ?? ""}
-            roleLabel="Application Manager"
-          />
-          {app.solutionArchitect && (
-            <ManagerCard
-              name={app.solutionArchitect.name}
-              email={app.solutionArchitect.email}
-              roleLabel="Solution Architect"
-            />
-          )}
-        </div>
-      )}
-
-      <div className="mt-8">
-        <Section title="Additional Information">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm max-w-detail-info">
-            <dt className="text-muted">Airbus Site</dt>
-            <dd>{app.airbusSite ?? "—"}</dd>
-            <dt className="text-muted">Functional Suitability</dt>
-            <dd>{app.functionalSuitability ?? "—"}</dd>
-            <dt className="text-muted">Technical Suitability</dt>
-            <dd>{app.technicalSuitability ?? "—"}</dd>
-            <dt className="text-muted">Program Category</dt>
-            <dd>{app.programCategory ?? "—"}</dd>
-            <dt className="text-muted">Part IS</dt>
-            <dd>{app.partIS ?? "—"}</dd>
-            <dt className="text-muted">Obso Risk Status</dt>
-            <dd>{app.obsoRiskStatus ?? "—"}</dd>
-            <UrlField label="BRD" value={app.BRDURL} />
-            <UrlField label="ARD" value={app.ARDURL} />
-            <UrlField label="Confluence" value={app.confluenceURL} />
-            <UrlField label="Google Drive" value={app.gDrivePath} />
-          </dl>
-        </Section>
-      </div>
-
     </main>
   );
 }

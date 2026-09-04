@@ -7,6 +7,7 @@ import clsx from "clsx";
 import ThemeToggle from "./ThemeToggle";
 import AboutDialog from "./AboutDialog";
 import RefreshButton from "./RefreshButton";
+import PhotoCacheSettingsControl from "./PhotoCacheSettingsControl";
 import { resetCatalogueFilters } from "@/lib/catalogueFilters";
 
 export default function Header() {
@@ -69,6 +70,7 @@ export default function Header() {
         <div className="ml-auto flex items-center gap-2 min-h-[32px]">
           {/* RESERVED: avatar, global search, notifications (V2) */}
           <RefreshButton />
+          <PhotoCacheSettingsControl />
           <AboutDialog />
           <ThemeToggle />
         </div>

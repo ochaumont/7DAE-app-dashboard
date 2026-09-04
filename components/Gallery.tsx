@@ -3,22 +3,14 @@
 import { useMemo, useState } from "react";
 import type { Photo, LinkedResourceRef } from "@/lib/types";
 import { usePhoto } from "@/lib/usePhoto";
-import { generateApplicationCoverDataUri } from "@/lib/generated-cover";
+import {
+  COLOR_PAIRS,
+  generateApplicationCoverDataUri,
+  hashSeed,
+} from "@/lib/generated-cover";
 import DocKindIcon from "./icons/DocKindIcon";
 import VideoIcon from "./icons/VideoIcon";
 import PanoramaClient from "./PanoramaClient";
-
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_HREF ?? "";
-
-/** No application carries real photos yet — these bundled covers stand in for
- * the future per-application gallery so the layout can be previewed today.
- * The first slide is the generated per-application cover (same one shown on
- * the catalogue card); the rest stay generic. */
-const GENERIC_SIMULATED_PHOTOS = [
-  `${BASE_PATH}/covers/cover-2.svg`,
-  `${BASE_PATH}/covers/cover-3.svg`,
-  `${BASE_PATH}/covers/cover-4.svg`,
-];
 
 function SimulatedThumbnail({
   src,
@@ -45,14 +37,19 @@ function SimulatedThumbnail({
 }
 
 function PhotoSlide({ photo }: { photo: Photo }) {
-  const src = usePhoto(photo.resourceId, photo.resourceUri);
-  if (photo.is360) return <PanoramaClient src={src} />;
+  const { url, isLoading } = usePhoto(
+    photo.resourceId,
+    photo.resourceUri,
+    !photo.is360,
+  );
+  if (photo.is360) return <PanoramaClient src={url} />;
   return (
-    <img
-      src={src}
-      alt={photo.alt ?? ""}
-      className="w-full h-full object-cover"
-    />
+    <>
+      <img src={url} alt={photo.alt ?? ""} className="w-full h-full object-cover" />
+      {isLoading && (
+        <div className="absolute inset-0 skeleton-pulse bg-surface-2" />
+      )}
+    </>
   );
 }
 
@@ -65,7 +62,11 @@ function Thumbnail({
   active: boolean;
   onClick: () => void;
 }) {
-  const src = usePhoto(photo.resourceId, photo.resourceUri);
+  const { url, isLoading } = usePhoto(
+    photo.resourceId,
+    photo.resourceUri,
+    !photo.is360,
+  );
   return (
     <button
       onClick={onClick}
@@ -77,7 +78,8 @@ function Thumbnail({
       }`}
       type="button"
     >
-      <img src={src} alt={photo.alt ?? ""} className="w-full h-full object-cover" />
+      <img src={url} alt={photo.alt ?? ""} className="w-full h-full object-cover" />
+      {isLoading && <div className="absolute inset-0 skeleton-pulse bg-surface-2" />}
       {photo.is360 && (
         <span
           aria-hidden="true"
@@ -99,29 +101,32 @@ function ResourceThumbnail({
   active: boolean;
   onClick: () => void;
 }) {
+  const [primary, secondary] =
+    COLOR_PAIRS[hashSeed(resource.id) % COLOR_PAIRS.length];
   return (
     <button
       onClick={onClick}
       title={resource.name}
-      className={`relative aspect-square rounded overflow-hidden border-2 transition-all flex flex-col items-center justify-center gap-1 bg-surface-2 px-1 ${
+      className={`relative aspect-square rounded overflow-hidden border-2 transition-all ${
         active
           ? "border-accent opacity-100"
           : "border-transparent opacity-60 hover:opacity-100"
       }`}
       type="button"
     >
-      {resource.kind === "video" ? (
-        <VideoIcon size={20} className={active ? "text-accent" : "text-muted"} />
-      ) : (
-        <DocKindIcon
-          kind={resource.kind}
-          size={20}
-          className={active ? undefined : "opacity-70"}
-        />
-      )}
-      <span className="text-[9px] leading-tight text-center truncate w-full">
-        {resource.name}
-      </span>
+      <div
+        className="w-full h-full flex flex-col items-center justify-center gap-1 px-1"
+        style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}
+      >
+        {resource.kind === "video" ? (
+          <VideoIcon size={20} className="text-white" />
+        ) : (
+          <DocKindIcon kind={resource.kind} size={20} className="text-white" />
+        )}
+        <span className="text-[9px] leading-tight text-center truncate w-full text-white/90 font-medium">
+          {resource.name}
+        </span>
+      </div>
     </button>
   );
 }
@@ -153,17 +158,29 @@ export default function Gallery({
   resourceOverride?: GalleryEmbedOverride;
   onPhotoSelect?: () => void;
 }) {
-  const [active, setActive] = useState(0);
-  const current = photos[active];
+  // The generated cover is the default main image unless a real photo is
+  // explicitly flagged "SELECTED" by the backend naming convention — real
+  // photos without that flag still show up as extra thumbnails, but never
+  // become the hero on their own.
+  const hasSelectedPhoto = photos.some((p) => p.kind === "selected");
+  const [activePhotoIndex, setActivePhotoIndex] = useState(() =>
+    photos.findIndex((p) => p.kind === "selected"),
+  );
+  const current = activePhotoIndex >= 0 ? photos[activePhotoIndex] : undefined;
   const isSimulated = !current;
 
   const simulatedPhotos = useMemo(
-    () => [generateApplicationCoverDataUri(name, externalId), ...GENERIC_SIMULATED_PHOTOS],
+    () => [generateApplicationCoverDataUri(name, externalId)],
     [name, externalId],
   );
 
   const selectPhoto = (i: number) => {
-    setActive(i);
+    setActivePhotoIndex(i);
+    onPhotoSelect?.();
+  };
+
+  const selectGeneratedCover = () => {
+    setActivePhotoIndex(-1);
     onPhotoSelect?.();
   };
 
@@ -176,27 +193,32 @@ export default function Gallery({
     />
   ));
 
-  const showThumbnailStrip = isSimulated || photos.length > 1 || resources.length > 0;
+  const showGeneratedCoverThumbnail = !hasSelectedPhoto;
+  const showRealPhotoThumbnails =
+    photos.length > 1 || (photos.length === 1 && showGeneratedCoverThumbnail);
+  const showThumbnailStrip =
+    showGeneratedCoverThumbnail || showRealPhotoThumbnails || resources.length > 0;
+
   const thumbnailStrip = showThumbnailStrip ? (
     <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
-      {isSimulated
-        ? simulatedPhotos.map((src, i) => (
-            <SimulatedThumbnail
-              key={src}
-              src={src}
-              active={i === active}
-              onClick={() => selectPhoto(i)}
-            />
-          ))
-        : photos.length > 1 &&
-          photos.map((p, i) => (
-            <Thumbnail
-              key={i}
-              photo={p}
-              active={i === active}
-              onClick={() => selectPhoto(i)}
-            />
-          ))}
+      {showGeneratedCoverThumbnail &&
+        simulatedPhotos.map((src) => (
+          <SimulatedThumbnail
+            key={src}
+            src={src}
+            active={isSimulated}
+            onClick={selectGeneratedCover}
+          />
+        ))}
+      {showRealPhotoThumbnails &&
+        photos.map((p, i) => (
+          <Thumbnail
+            key={i}
+            photo={p}
+            active={i === activePhotoIndex}
+            onClick={() => selectPhoto(i)}
+          />
+        ))}
       {resourceThumbnails}
     </div>
   ) : null;
@@ -223,7 +245,7 @@ export default function Gallery({
       </div>
     );
   } else if (isSimulated) {
-    const simulatedSrc = simulatedPhotos[active] ?? simulatedPhotos[0];
+    const simulatedSrc = simulatedPhotos[0];
     heroContent = (
       <>
         <img src={simulatedSrc} alt="" className="w-full h-full object-cover" />

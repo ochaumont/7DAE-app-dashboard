@@ -54,6 +54,25 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/*
+ * Always reserve the scrollbar gutter, even on pages short enough not to
+ * scroll. Without it, switching between a tall panel and a short one (the
+ * detail-page tabs: Identity / Accountability / In Context overflow, while
+ * Compliance and Documentation do not) adds or removes the scrollbar, which
+ * changes the viewport width by ~15px. Every `mx-auto` container then shifts
+ * sideways by half of that, so the hero image and the title visibly jump.
+ * Reserving the gutter keeps the layout width constant.
+ */
+html {
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html {
+    overflow-y: scroll;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

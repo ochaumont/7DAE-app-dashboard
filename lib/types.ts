@@ -103,3 +103,18 @@ export type Application = {
   photos: Photo[];
   linkedResources: LinkedResourceRef[];
 };
+
+/** Direction of data flow between an application and one of its neighbours,
+ * as reported by `GET /api/infos/applications/{externalId}/links`.
+ * `both` is sent explicitly by the backend — it is never inferred here.
+ * `unknown` covers any value the backend adds later. */
+export type LinkDirection = "inbound" | "outbound" | "both" | "unknown";
+
+/** A neighbouring application in the interface graph. Unrelated to
+ * `LinkedResourceRef`, which models Google Docs/videos attached to a fiche. */
+export type ApplicationLink = {
+  id: string;
+  externalId: string;
+  name: string;
+  direction: LinkDirection;
+};
