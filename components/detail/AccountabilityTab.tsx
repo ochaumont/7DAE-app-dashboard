@@ -15,7 +15,7 @@ export default function AccountabilityTab({
 }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="Portfolio" value={application.portfolio?.name ?? null} />
         <StatCard
           label="Dept Provider"
@@ -30,7 +30,6 @@ export default function AccountabilityTab({
           label="Provider Type"
           value={PROVIDER_TYPE_LABELS[application.providerType]}
         />
-        <StatCard label="Completion" value={`${application.completion}%`} />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <ManagerCard
