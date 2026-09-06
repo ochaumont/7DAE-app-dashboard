@@ -127,7 +127,10 @@ function AxisRow({
   mode: "delivered" | "missing";
 }) {
   const severity = percentSeverity(pct);
-  const labelClass = mode === "delivered" ? "text-success" : "text-danger";
+  const labelClass =
+    mode === "delivered"
+      ? "text-success border-success bg-success/10"
+      : "text-danger border-danger bg-danger/10";
   return (
     <div className="py-2 border-b border-border last:border-0 space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -142,7 +145,10 @@ function AxisRow({
         {labels.length > 0 ? (
           <div className="flex flex-wrap gap-x-1.5 gap-y-1">
             {labels.map((l) => (
-              <span key={l} className={labelClass}>
+              <span
+                key={l}
+                className={`rounded-full border-2 px-2 py-0.5 ${labelClass}`}
+              >
                 {l}
               </span>
             ))}
