@@ -120,18 +120,25 @@ function AxisRow({
   pct,
   labels,
   mode,
+  hidden = false,
 }: {
   label: string;
   pct: number | null;
   labels: string[];
   mode: "delivered" | "missing";
+  /** Kept in the DOM (reserving its row height) but visually hidden — used
+   * for DETA06 in Delivered mode so toggling never changes the table's
+   * overall height (no "present" list exists for DETA06 to show instead). */
+  hidden?: boolean;
 }) {
   const severity = percentSeverity(pct);
   const labelColorVar =
     mode === "delivered" ? "var(--color-success)" : "var(--color-danger)";
   const labelClass = mode === "delivered" ? "text-success bg-success/10" : "text-danger bg-danger/10";
   return (
-    <div className="py-2 border-b border-border last:border-0 space-y-1">
+    <div
+      className={`py-2 border-b border-border last:border-0 space-y-1 ${hidden ? "invisible" : ""}`}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs uppercase tracking-[0.1em] font-mono text-muted">
           {label}
@@ -146,7 +153,7 @@ function AxisRow({
             {labels.map((l) => (
               <span
                 key={l}
-                className={`rounded-full border px-2 py-0.5 ${labelClass}`}
+         className={`rounded-full border px-2 py-0.5 ${labelClass}`}
                 style={{ borderColor: labelColorVar }}
               >
                 {l}
@@ -185,25 +192,30 @@ export default function ComplianceTab({
   // regardless of where they sit on the radar.
   const tableRank = (key: (typeof AXES)[number]["key"]) =>
     key === "kpi_security" ? 0 : key === "deta06" ? 2 : 1;
+  // DETA06 is always present in `rows` (never filtered out) — in Delivered
+  // mode it's just marked `hidden`, so its row still reserves its height and
+  // toggling the switch never changes the table's overall size.
   const rows = [...AXES]
     .sort((a, b) => tableRank(a.key) - tableRank(b.key))
     .map((axis) => {
       const i = AXES.indexOf(axis);
       if (axis.key === "deta06") {
-        return mode === "missing"
-          ? { label: axis.label, pct: percents[i], labels: deta06MissingLabels(application.deta06MissingDocs) }
-          : null; // DETA06 has no "present" list — the row disappears in Delivered mode.
+        return {
+          label: axis.label,
+          pct: percents[i],
+          labels: mode === "missing" ? deta06MissingLabels(application.deta06MissingDocs) : [],
+          hidden: mode === "delivered",
+        };
       }
       const key = axis.key as KpiKey;
       const raw = application[key];
       const labels =
         mode === "delivered" ? kpiPresentLabels(key, raw) : kpiMissingLabels(key, raw);
-      return { label: axis.label, pct: percents[i], labels };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+      return { label: axis.label, pct: percents[i], labels, hidden: false };
+    });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6 items-start">
       <div className="rounded-card border border-border bg-surface p-4">
         <Radar percents={percents} />
       </div>
@@ -237,6 +249,7 @@ export default function ComplianceTab({
             pct={row.pct}
             labels={row.labels}
             mode={mode}
+            hidden={row.hidden}
           />
         ))}
       </div>
