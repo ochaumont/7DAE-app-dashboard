@@ -127,10 +127,9 @@ function AxisRow({
   mode: "delivered" | "missing";
 }) {
   const severity = percentSeverity(pct);
-  const labelClass =
-    mode === "delivered"
-      ? "text-success border-success bg-success/10"
-      : "text-danger border-danger bg-danger/10";
+  const labelColorVar =
+    mode === "delivered" ? "var(--color-success)" : "var(--color-danger)";
+  const labelClass = mode === "delivered" ? "text-success bg-success/10" : "text-danger bg-danger/10";
   return (
     <div className="py-2 border-b border-border last:border-0 space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -147,7 +146,8 @@ function AxisRow({
             {labels.map((l) => (
               <span
                 key={l}
-                className={`rounded-full border-2 px-2 py-0.5 ${labelClass}`}
+                className={`rounded-full border px-2 py-0.5 ${labelClass}`}
+                style={{ borderColor: labelColorVar }}
               >
                 {l}
               </span>
