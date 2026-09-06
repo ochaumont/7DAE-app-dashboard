@@ -92,6 +92,12 @@ export type Application = {
   airbusSite: string | null;
   functionalSuitability: string | null;
   technicalSuitability: string | null;
+  kpi_functionalSuitability: string[];
+  kpi_maintainability: string[];
+  kpi_understandability: string[];
+  kpi_security: string[];
+  deta06ComplianceLevel: number | null;
+  deta06MissingDocs: string[];
   programCategory: string | null;
   partIS: string | null;
   obsoRiskStatus: string | null;

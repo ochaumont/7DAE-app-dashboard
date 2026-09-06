@@ -1,68 +1,69 @@
+import { buildApplicationsQuery } from "./leanix-application-query";
+
 export const NEXT_PUBLIC_ATOM_API_BASE_URL =
   process.env.NEXT_PUBLIC_ATOM_API_BASE_URL ??
   "http://localhost:8080/atom-synchronizer-dev";
 
-export type FactsheetRef = {
-  id: string;
-  externalId: string;
-  name: string;
-  etags?: unknown;
-  userSubscriptions?: unknown;
+/** One edge of a `rel...` relation resolved to its target FactSheet. */
+export type RelatedFactSheetEdge = {
+  node: {
+    factSheet: {
+      id: string;
+      name: string | null;
+      externalId?: { externalId: string } | null;
+    } | null;
+  };
 };
 
-export type DocumentRef = {
+/** One entry of `documents.edges[].node` — same shape as the former REST
+ * `DocumentRef`, so `toPhotos`/`toLinkedResources` need no filtering changes. */
+export type DocumentNode = {
   id: string;
+  documentType: string | null;
   name: string | null;
-  documentType: string;
-  url: string;
-  origin?: string | null;
+  origin: string | null;
+  url: string | null;
 };
 
-export type ApplicationDto = {
+/** One `Application` FactSheet node from the LeanIX GraphQL schema, trimmed
+ * to the fields `Application` (`lib/types.ts`) actually maps today — see
+ * `lib/leanix-application-query.ts`. */
+export type ApplicationNode = {
   id: string;
-  externalId: string;
+  externalId: { externalId: string };
   name: string;
-  appCategory:
-    | "ivbot"
-    | "END_USER_TOOL"
-    | "component"
-    | "official"
-    | "not1v"
-    | "notDefined"
-    | null;
-  appStatus: "active" | "developmentPhase" | "inactive" | "planPhase" | null;
+  appCategory: string | null;
+  appStatus: string | null;
   description: string | null;
-  version: string | null;
-  completion: number;
-  businessCriticality:
-    | "missionCritical"
-    | "businessCritical"
-    | "businessOperational"
-    | "administrativeService"
-    | null;
-  airbusSite?: string | null;
-  functionalSuitability?: string | null;
-  technicalSuitability?: string | null;
-  programCategory?: string | null;
-  partIS?: string | null;
-  obsoRiskStatus?: string | null;
-  BRDURL?: string | null;
-  ARDURL?: string | null;
-  confluenceURL?: string | null;
-  gDrivePath?: string | null;
-  providerType: "airbus" | "external" | null;
+  release: string | null;
   operator: string | null;
-  deptProviders: string[];
-  portfolio: FactsheetRef | null;
-  manager: FactsheetRef | null;
-  managerDelegates: FactsheetRef[];
-  architectSolution: FactsheetRef | null;
-  lifeCycle_phaseIn: string | null;
-  lifeCycle_active: string | null;
-  lifeCycle_phaseOut: string | null;
-  lifeCycle_endOfLife: string | null;
-  lifeCycle_plan: string | null;
-  documentRefs: DocumentRef[] | null;
+  providerType: string | null;
+  deptProvider: string[] | null;
+  businessCriticality: string | null;
+  functionalSuitability: string | null;
+  technicalSuitability: string | null;
+  kpi_functionalSuitability: string[] | null;
+  kpi_maintainability: string[] | null;
+  kpi_understandability: string[] | null;
+  kpi_security: string[] | null;
+  deta06ComplianceLevel: number | null;
+  deta06MissingDocs: string[] | null;
+  obsoRiskStatus: string | null;
+  airbusSite: string[] | null;
+  programCategory: string | null;
+  partIS: string | null;
+  BRDURL: string | null;
+  ARDURL: string | null;
+  confluenceURL: string | null;
+  gDrivePath: string | null;
+  completion: { percentage: number } | null;
+  lifecycle: { phases: { phase: string; startDate: string }[] } | null;
+  documents: { edges: { node: DocumentNode }[] } | null;
+  relApplicationToBusinessOwnerUsers: { edges: RelatedFactSheetEdge[] } | null;
+  relApplicationToSolutionArchitectUsers: {
+    edges: RelatedFactSheetEdge[];
+  } | null;
+  relApplicationToPortfolio: { edges: RelatedFactSheetEdge[] } | null;
 };
 
 export type AtomErrorKind = "backend-down" | "unauthorized" | "http-error";
@@ -230,30 +231,97 @@ function httpError(res: Response, url: string): never {
   );
 }
 
-export async function fetchApplications(): Promise<ApplicationDto[]> {
-  const res = await atomFetch(
-    `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications`,
-    {},
+/** GraphQL endpoint for LeanIX FactSheet reads (a REST-transported GraphQL
+ * query, treated like the other ATOM API calls: same base URL, same auth). */
+const GRAPHQL_URL = `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/leanix/graphql/query`;
+
+/** Throws a diagnostics-rich AtomApiError for a GraphQL response that came
+ * back HTTP 200 but carries `errors[]` — a GraphQL error is still an error,
+ * regardless of whether `data` is also present (fail-closed: no partial
+ * rendering from a response the backend itself flagged as failed). */
+function graphQlError(
+  res: Response,
+  url: string,
+  errors: { message: string }[],
+): never {
+  const { sameOrigin, pageOrigin } = originInfo(url);
+  const cause = errors.map((e) => e.message).join("; ");
+  throw new AtomApiError(
+    res.status,
+    res.statusText,
+    `ATOM_HTTP_ERROR: GraphQL error(s) on ${url}: ${cause}`,
+    {
+      kind: "http-error",
+      url,
+      baseUrl: NEXT_PUBLIC_ATOM_API_BASE_URL,
+      baseUrlFromEnv: BASE_URL_FROM_ENV,
+      sameOrigin,
+      pageOrigin,
+      auth: process.env.NEXT_PUBLIC_DEV_JWT ? "bearer-dev" : "none",
+      status: res.status,
+      statusText: res.statusText,
+      cause,
+    },
   );
-  if (!res.ok)
-    httpError(res, `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications`);
-  return (await res.json()) as ApplicationDto[];
+}
+
+type AllFactSheetsResult = {
+  totalCount: number;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  edges: { node: ApplicationNode }[];
+};
+
+async function postGraphQL(query: string): Promise<AllFactSheetsResult> {
+  const res = await atomFetch(GRAPHQL_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) httpError(res, GRAPHQL_URL);
+  const json = (await res.json()) as {
+    data?: { allFactSheets: AllFactSheetsResult };
+    errors?: { message: string }[];
+  };
+  if (json.errors?.length) graphQlError(res, GRAPHQL_URL, json.errors);
+  return json.data!.allFactSheets;
+}
+
+/** Loops over `pageInfo.hasNextPage`/`endCursor` until every page has been
+ * fetched — the backend's per-page limit is unknown, so no `first` argument
+ * is sent and the loop keeps going until the server says there is no more. */
+async function fetchAllApplicationNodes(
+  buildQuery: (after?: string) => string,
+): Promise<ApplicationNode[]> {
+  const nodes: ApplicationNode[] = [];
+  let after: string | undefined;
+  do {
+    const page = await postGraphQL(buildQuery(after));
+    // A FactSheet without an externalId can't be routed to (`/application?id=`
+    // relies on it) or used as a list/React key — drop it rather than crash
+    // the whole catalogue over one malformed LeanIX record.
+    nodes.push(
+      ...page.edges
+        .map((e) => e.node)
+        .filter((node) => !!node.externalId?.externalId),
+    );
+    after = page.pageInfo.hasNextPage
+      ? (page.pageInfo.endCursor ?? undefined)
+      : undefined;
+  } while (after);
+  return nodes;
+}
+
+export async function fetchApplications(): Promise<ApplicationNode[]> {
+  return fetchAllApplicationNodes((after) => buildApplicationsQuery({ after }));
 }
 
 export async function fetchApplication(
   externalId: string,
-): Promise<ApplicationDto | null> {
-  const res = await atomFetch(
-    `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications/${encodeURIComponent(externalId)}`,
-    { next: { revalidate: 60 } },
+): Promise<ApplicationNode | null> {
+  const nodes = await fetchAllApplicationNodes((after) =>
+    buildApplicationsQuery({ after, externalId }),
   );
-  if (res.status === 404) return null;
-  if (!res.ok)
-    httpError(
-      res,
-      `${NEXT_PUBLIC_ATOM_API_BASE_URL}/api/infos/applications/${encodeURIComponent(externalId)}`,
-    );
-  return (await res.json()) as ApplicationDto;
+  return nodes[0] ?? null;
 }
 
 /** One entry of `GET /api/infos/applications/{externalId}/links`: a neighbouring

@@ -1,9 +1,23 @@
-import type { ApplicationDto, FactsheetRef } from "./atom-api";
+import type { ApplicationNode, DocumentNode, RelatedFactSheetEdge } from "./atom-api";
 import { detectGoogleDocFromUrl, getGoogleDriveEmbedUrl } from "./google-embed";
 import type { Application, Person } from "./types";
 
-function toPerson(ref: FactsheetRef): Person {
-  return { name: ref.name, email: ref.externalId };
+/** Unwraps a `rel...` relation's first edge to its target FactSheet — the
+ * model only keeps a single portfolio/manager/architect, so later entries
+ * (if any) are ignored. `null` when the relation has no edges, or the target
+ * FactSheet has no `externalId` (shouldn't happen for Portfolio/Users, but
+ * degrades gracefully rather than throwing). */
+function firstRelatedFactSheet(
+  rel: { edges: RelatedFactSheetEdge[] } | null,
+): { id: string; name: string; externalId: string } | null {
+  const factSheet = rel?.edges?.[0]?.node?.factSheet;
+  const externalId = factSheet?.externalId?.externalId;
+  if (!factSheet || !externalId) return null;
+  return { id: factSheet.id, name: factSheet.name ?? "", externalId };
+}
+
+function toPerson(factSheet: { name: string; externalId: string }): Person {
+  return { name: factSheet.name, email: factSheet.externalId };
 }
 
 const DEFAULT_DOC_NAMES: Record<"slides" | "docs" | "sheets", string> = {
@@ -18,9 +32,10 @@ const DEFAULT_DOC_NAMES: Record<"slides" | "docs" | "sheets", string> = {
  * Slides/Docs/Sheets are detected first from the URL; anything left is
  * treated as a Drive file ("video") only if `documentType` says so, or if
  * the URL itself looks like a Drive file link. */
-function toLinkedResources(dto: ApplicationDto): Application["linkedResources"] {
-  return (dto.documentRefs ?? [])
-    .filter((d): d is NonNullable<typeof d> => !!d && !!d.url)
+function toLinkedResources(node: ApplicationNode): Application["linkedResources"] {
+  const documents = (node.documents?.edges ?? []).map((e) => e.node);
+  return documents
+    .filter((d): d is DocumentNode & { url: string } => !!d && !!d.url)
     .map((d): Application["linkedResources"][number] | null => {
       const detected = detectGoogleDocFromUrl(d.url);
       if (detected) {
@@ -47,7 +62,7 @@ function toLinkedResources(dto: ApplicationDto): Application["linkedResources"] 
     .filter((v): v is NonNullable<typeof v> => v !== null);
 }
 
-/** Real photos come from `documentRefs` entries with `documentType: "photo"`
+/** Real photos come from `documents` entries with `documentType: "photo"`
  * AND `origin: "LX_STORAGE_SERVICE"` (both required — confirmed backend
  * convention, distinct from the video/Slides/Sheets documents which share
  * `documentType: "video"` / `origin: "CUSTOM_LINK"`), streamed via the ATOM
@@ -58,11 +73,12 @@ function toLinkedResources(dto: ApplicationDto): Application["linkedResources"] 
  * non-selected photos are still available as extra thumbnails, just never
  * chosen automatically as the cover. */
 function toPhotos(
-  dto: ApplicationDto,
+  node: ApplicationNode,
 ): Pick<Application, "coverPhoto" | "photos"> {
-  const photos: Application["photos"] = (dto.documentRefs ?? [])
+  const documents = (node.documents?.edges ?? []).map((e) => e.node);
+  const photos: Application["photos"] = documents
     .filter(
-      (d): d is NonNullable<typeof d> =>
+      (d): d is DocumentNode & { url: string } =>
         !!d &&
         d.documentType?.toLowerCase() === "photo" &&
         d.origin === "LX_STORAGE_SERVICE" &&
@@ -84,55 +100,77 @@ function toPhotos(
   return { coverPhoto, photos };
 }
 
-function toLifecycle(dto: ApplicationDto): Application["lifecycle"] {
+/** GraphQL already reports each lifecycle phase keyed by the same names
+ * (`plan`/`phaseIn`/`active`/`phaseOut`/`endOfLife`) `ApplicationLifecycle`
+ * uses — no flat `lifeCycle_*` fields to reassemble. Unrecognized phase
+ * values are skipped rather than breaking the build. */
+const LIFECYCLE_KEYS = new Set<keyof Application["lifecycle"]>([
+  "plan",
+  "phaseIn",
+  "active",
+  "phaseOut",
+  "endOfLife",
+]);
+
+function toLifecycle(node: ApplicationNode): Application["lifecycle"] {
   const lifecycle: Application["lifecycle"] = {};
-  if (dto.lifeCycle_phaseIn) lifecycle.phaseIn = dto.lifeCycle_phaseIn;
-  if (dto.lifeCycle_active) lifecycle.active = dto.lifeCycle_active;
-  if (dto.lifeCycle_phaseOut) lifecycle.phaseOut = dto.lifeCycle_phaseOut;
-  if (dto.lifeCycle_endOfLife) lifecycle.endOfLife = dto.lifeCycle_endOfLife;
-  if (dto.lifeCycle_plan) lifecycle.plan = dto.lifeCycle_plan;
+  for (const { phase, startDate } of node.lifecycle?.phases ?? []) {
+    if (LIFECYCLE_KEYS.has(phase as keyof Application["lifecycle"])) {
+      lifecycle[phase as keyof Application["lifecycle"]] = startDate;
+    }
+  }
   return lifecycle;
 }
 
-export function toApplication(dto: ApplicationDto): Application {
+export function toApplication(node: ApplicationNode): Application {
+  const manager = firstRelatedFactSheet(node.relApplicationToBusinessOwnerUsers);
+  const solutionArchitect = firstRelatedFactSheet(
+    node.relApplicationToSolutionArchitectUsers,
+  );
+  const portfolio = firstRelatedFactSheet(node.relApplicationToPortfolio);
+
   return {
-    id: dto.id,
-    externalId: dto.externalId,
-    name: dto.name,
-    category: dto.appCategory ?? "notDefined",
-    status: dto.appStatus ?? "NA",
-    description: dto.description ?? "",
-    lifecycle: toLifecycle(dto),
-    version: dto.version?.trim() || null,
-    portfolio:
-      dto.portfolio &&
-      typeof dto.portfolio.id === "string" &&
-      dto.portfolio.id.length > 0 &&
-      typeof dto.portfolio.name === "string" &&
-      dto.portfolio.name.length > 0
-        ? { id: dto.portfolio.id, name: dto.portfolio.name }
-        : null,
-    operator: dto.operator?.trim() || null,
-    providerType: dto.providerType ?? "NA",
-    deptProviders: dto.deptProviders ?? [],
-    manager: dto.manager ? toPerson(dto.manager) : null,
-    managerDelegates: (dto.managerDelegates ?? []).map(toPerson),
-    solutionArchitect: dto.architectSolution
-      ? toPerson(dto.architectSolution)
-      : null,
-    completion: dto.completion,
-    businessCriticality: dto.businessCriticality ?? "NA",
-    airbusSite: dto.airbusSite?.trim() || null,
-    functionalSuitability: dto.functionalSuitability?.trim() || null,
-    technicalSuitability: dto.technicalSuitability?.trim() || null,
-    programCategory: dto.programCategory?.trim() || null,
-    partIS: dto.partIS?.trim() || null,
-    obsoRiskStatus: dto.obsoRiskStatus?.trim() || null,
-    BRDURL: dto.BRDURL?.trim() || null,
-    ARDURL: dto.ARDURL?.trim() || null,
-    confluenceURL: dto.confluenceURL?.trim() || null,
-    gDrivePath: dto.gDrivePath?.trim() || null,
-    ...toPhotos(dto),
-    linkedResources: toLinkedResources(dto),
+    id: node.id,
+    // Falls back to the internal id if externalId is missing — should
+    // already be filtered out upstream (`fetchAllApplicationNodes`), but
+    // this keeps `toApplication` itself crash-proof regardless.
+    externalId: node.externalId?.externalId ?? node.id,
+    name: node.name,
+    category: (node.appCategory as Application["category"]) ?? "notDefined",
+    status: (node.appStatus as Application["status"]) ?? "NA",
+    description: node.description ?? "",
+    lifecycle: toLifecycle(node),
+    version: node.release?.trim() || null,
+    portfolio: portfolio ? { id: portfolio.id, name: portfolio.name } : null,
+    operator: node.operator?.trim() || null,
+    providerType: (node.providerType as Application["providerType"]) ?? "NA",
+    deptProviders: node.deptProvider ?? [],
+    manager: manager ? toPerson(manager) : null,
+    // No GraphQL relation for delegate managers today — kept on the
+    // `Application` type but always empty (the PDF export was updated to
+    // stop rendering it).
+    managerDelegates: [],
+    solutionArchitect: solutionArchitect ? toPerson(solutionArchitect) : null,
+    completion: node.completion?.percentage ?? 0,
+    businessCriticality:
+      (node.businessCriticality as Application["businessCriticality"]) ?? "NA",
+    airbusSite: (node.airbusSite ?? []).join(", ") || null,
+    functionalSuitability: node.functionalSuitability?.trim() || null,
+    technicalSuitability: node.technicalSuitability?.trim() || null,
+    kpi_functionalSuitability: node.kpi_functionalSuitability ?? [],
+    kpi_maintainability: node.kpi_maintainability ?? [],
+    kpi_understandability: node.kpi_understandability ?? [],
+    kpi_security: node.kpi_security ?? [],
+    deta06ComplianceLevel: node.deta06ComplianceLevel ?? null,
+    deta06MissingDocs: node.deta06MissingDocs ?? [],
+    programCategory: node.programCategory?.trim() || null,
+    partIS: node.partIS?.trim() || null,
+    obsoRiskStatus: node.obsoRiskStatus?.trim() || null,
+    BRDURL: node.BRDURL?.trim() || null,
+    ARDURL: node.ARDURL?.trim() || null,
+    confluenceURL: node.confluenceURL?.trim() || null,
+    gDrivePath: node.gDrivePath?.trim() || null,
+    ...toPhotos(node),
+    linkedResources: toLinkedResources(node),
   };
 }
