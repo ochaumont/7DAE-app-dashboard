@@ -124,3 +124,44 @@ export type ApplicationLink = {
   name: string;
   direction: LinkDirection;
 };
+
+/* ---------------------------------------------------------------------- *
+ * Discover graph — neutral node/edge model. Independent of the LeanIX
+ * GraphQL response shape (`lib/atom-api.ts`'s `ApplicationInterfacesNode` /
+ * `InterfaceNode`); `lib/discover-graph-adapter.ts` produces these from that
+ * shape. All identification is by technical `id` (never `externalId`,
+ * absent on Interface and sometimes on Application).
+ * ---------------------------------------------------------------------- */
+
+export type DiscoverApplicationNode = {
+  kind: "application";
+  /** Technical id — the graph's node id and the only key used for lookups. */
+  id: string;
+  externalId: string | null;
+  name: string;
+  /** Resolved from the already-loaded `Application[]` catalogue, not from
+   * the Interface GraphQL queries (which don't carry it) — `null` when the
+   * application isn't in that catalogue or has no manager set. */
+  managerName: string | null;
+};
+
+export type DiscoverInterfaceNode = {
+  kind: "interface";
+  id: string;
+  name: string | null;
+  protocol: string | null;
+  /** Technical id of the provider Application — always known once an
+   * Interface node exists, since it anchors the circle's position. */
+  providerId: string;
+};
+
+export type DiscoverGraphNode = DiscoverApplicationNode | DiscoverInterfaceNode;
+
+/** Always drawn from the consuming Application to the consumed Interface. */
+export type DiscoverEdge = {
+  id: string;
+  consumerId: string;
+  interfaceId: string;
+  interfacetype: string | null;
+  frequency: string | null;
+};

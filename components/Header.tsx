@@ -21,6 +21,8 @@ export default function Header() {
     pathname === "/" || pathname.startsWith("/application");
   const mapActive =
     pathname === "/map" || pathname.startsWith("/map/");
+  const discoverActive =
+    pathname === "/discover" || pathname.startsWith("/discover/");
 
   const itemClass = (active: boolean) =>
     clsx(
@@ -64,6 +66,9 @@ export default function Header() {
           </Link>
           <Link href="/map" className={itemClass(mapActive)}>
             Map
+          </Link>
+          <Link href="/discover" className={itemClass(discoverActive)}>
+            Discover
           </Link>
         </nav>
 

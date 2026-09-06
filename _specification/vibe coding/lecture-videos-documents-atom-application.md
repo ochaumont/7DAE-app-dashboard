@@ -82,7 +82,7 @@ Trois leviers retenus, à implémenter ensemble :
 - **Vignette vidéo** : doit-elle afficher une miniature générée (frame extraite, non disponible ici) ou une icône/pictogramme générique "vidéo" avec le nom du document ? => pour l'instant pictogramme générique vidéo avec le nom de documents.
 
 - **Plusieurs vidéos** : si une application a plusieurs `documentRefs` vidéo, faut-il une vignette par vidéo (rangée de petites cartes) ou un sélecteur unique (menu déroulant) ? => il faut plusieurs finettes vidéo comme pour les photos.
-
+@temp/e4
 ## Acceptance Criteria
 - [ ] Les `documentRefs` de type `video` sont correctement identifiés et exposés à l'UI de la fiche détail Application.
 - [ ] Une vignette cliquable apparaît sous les encarts existants pour chaque vidéo trouvée.

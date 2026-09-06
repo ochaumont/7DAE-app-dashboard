@@ -1,4 +1,8 @@
 import { buildApplicationsQuery } from "./leanix-application-query";
+import {
+  buildApplicationInterfacesQuery,
+  buildInterfaceDependenciesQuery,
+} from "./leanix-interface-query";
 
 export const NEXT_PUBLIC_ATOM_API_BASE_URL =
   process.env.NEXT_PUBLIC_ATOM_API_BASE_URL ??
@@ -271,7 +275,12 @@ type AllFactSheetsResult = {
   edges: { node: ApplicationNode }[];
 };
 
-async function postGraphQL(query: string): Promise<AllFactSheetsResult> {
+/** Generic GraphQL POST — returns the full `data` object, untyped beyond
+ * `T`. Callers know the field(s) they asked for (e.g. `allFactSheets`) and
+ * destructure accordingly; this keeps the fetch/timeout/auth/error-mapping
+ * logic (`atomFetch`/`httpError`/`graphQlError`) shared across every LeanIX
+ * query this app makes, instead of duplicating it per query module. */
+async function postGraphQL<T>(query: string): Promise<T> {
   const res = await atomFetch(GRAPHQL_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -279,11 +288,11 @@ async function postGraphQL(query: string): Promise<AllFactSheetsResult> {
   });
   if (!res.ok) httpError(res, GRAPHQL_URL);
   const json = (await res.json()) as {
-    data?: { allFactSheets: AllFactSheetsResult };
+    data?: T;
     errors?: { message: string }[];
   };
   if (json.errors?.length) graphQlError(res, GRAPHQL_URL, json.errors);
-  return json.data!.allFactSheets;
+  return json.data!;
 }
 
 /** Loops over `pageInfo.hasNextPage`/`endCursor` until every page has been
@@ -295,7 +304,9 @@ async function fetchAllApplicationNodes(
   const nodes: ApplicationNode[] = [];
   let after: string | undefined;
   do {
-    const page = await postGraphQL(buildQuery(after));
+    const { allFactSheets: page } = await postGraphQL<{
+      allFactSheets: AllFactSheetsResult;
+    }>(buildQuery(after));
     // A FactSheet without an externalId can't be routed to (`/application?id=`
     // relies on it) or used as a list/React key — drop it rather than crash
     // the whole catalogue over one malformed LeanIX record.
@@ -343,4 +354,98 @@ export async function fetchApplicationLinks(
   if (res.status === 404) return [];
   if (!res.ok) httpError(res, url);
   return (await res.json()) as ApplicationLinkDto[];
+}
+
+/* ---------------------------------------------------------------------- *
+ * Discover graph — Application/Interface FactSheet model (distinct from the
+ * simplified `/links` REST endpoint above, and from `ApplicationNode`). See
+ * `lib/leanix-interface-query.ts` for the query text and
+ * `lib/discover-graph-adapter.ts` for the mapping into the neutral graph
+ * model consumed by the Discover components.
+ * ---------------------------------------------------------------------- */
+
+/** One `rel...` edge that carries `interfacetype`/`frequency` on the edge
+ * itself (the Application↔Interface relations), resolved to the related
+ * Application FactSheet. */
+export type InterfaceRelatedApplicationEdge = {
+  node: {
+    interfacetype: string | null;
+    frequency: string | null;
+    factSheet: {
+      id: string;
+      name: string | null;
+      externalId?: { externalId: string } | null;
+    } | null;
+  };
+};
+
+/** One `relInterfaceToDataObject` edge — kept for a future iteration, not
+ * rendered by Discover today (spec: Data Objects out of scope). */
+export type DataObjectEdge = {
+  node: {
+    factSheet: {
+      id: string;
+      name: string | null;
+      externalId?: { externalId: string } | null;
+    } | null;
+  };
+};
+
+/** An Interface FactSheet as returned nested inside an Application query, or
+ * directly via `buildInterfaceDependenciesQuery`. Whichever side the query
+ * came from, the opposite relation may be absent (`null`) rather than
+ * fetched — callers merge partial results across both query shapes. */
+export type InterfaceNode = {
+  id: string;
+  externalId: { externalId: string } | null;
+  name: string | null;
+  protocol: string | null;
+  relInterfaceToConsumerApplication: {
+    edges: InterfaceRelatedApplicationEdge[];
+  } | null;
+  relInterfaceToProviderApplication: { edges: RelatedFactSheetEdge[] } | null;
+  relInterfaceToDataObject: { edges: DataObjectEdge[] } | null;
+};
+
+/** An Application FactSheet as returned by `buildApplicationInterfacesQuery`
+ * — both directions (provider / consumer) in one round-trip. */
+export type ApplicationInterfacesNode = {
+  id: string;
+  externalId: { externalId: string } | null;
+  name: string;
+  relProviderApplicationToInterface: {
+    edges: { node: { factSheet: InterfaceNode | null } }[];
+  } | null;
+  relConsumerApplicationToInterface: {
+    edges: ConsumedInterfaceEdge[];
+  } | null;
+};
+
+/** Same edge shape as `InterfaceRelatedApplicationEdge`, but the edge's
+ * `factSheet` is the Interface itself (not an Application) — named
+ * distinctly so the two are never accidentally interchanged. */
+type ConsumedInterfaceEdge = {
+  node: {
+    interfacetype: string | null;
+    frequency: string | null;
+    factSheet: InterfaceNode | null;
+  };
+};
+
+export async function fetchApplicationInterfaces(
+  id: string,
+): Promise<ApplicationInterfacesNode | null> {
+  const { allFactSheets } = await postGraphQL<{
+    allFactSheets: { edges: { node: ApplicationInterfacesNode }[] };
+  }>(buildApplicationInterfacesQuery(id));
+  return allFactSheets.edges[0]?.node ?? null;
+}
+
+export async function fetchInterfaceDependencies(
+  id: string,
+): Promise<InterfaceNode | null> {
+  const { allFactSheets } = await postGraphQL<{
+    allFactSheets: { edges: { node: InterfaceNode }[] };
+  }>(buildInterfaceDependenciesQuery(id));
+  return allFactSheets.edges[0]?.node ?? null;
 }
