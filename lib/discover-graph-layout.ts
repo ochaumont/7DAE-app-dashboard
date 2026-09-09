@@ -34,31 +34,38 @@ export async function layoutRootApplications(
   return positions;
 }
 
-/** Evenly spaces `count` interface circles right on the provider rectangle's
- * top border — centers sit ON the border line (half the circle above it,
- * half overlapping the rectangle), not on a ring floating away from it.
- * Recomputed for a given provider every time its visible interface count
- * changes; no density cap in this first version (decision: no limit — many
- * interfaces will crowd/overlap along the same edge).
- *
- * Positions are relative to the provider's own top-left corner, not
- * absolute — callers set them as an xyflow child node (`parentId`), which is
- * what makes the circles move together with the rectangle when it's
- * dragged: xyflow renders/drags a child's on-screen position as
- * `parent.position + child.position` automatically, so nothing here (or in
- * the drag handler) needs to react to the provider moving. */
-export function placeInterfacesAroundProvider(count: number): { x: number; y: number }[] {
-  const margin = INTERFACE_NODE_SIZE;
-  const usableWidth = APP_NODE_WIDTH - margin * 2;
-  const y = -INTERFACE_NODE_SIZE / 2;
-  if (count === 1) {
-    return [{ x: APP_NODE_WIDTH / 2 - INTERFACE_NODE_SIZE / 2, y }];
-  }
-  const step = usableWidth / (count - 1);
-  return Array.from({ length: count }, (_, i) => ({
-    x: margin + i * step - INTERFACE_NODE_SIZE / 2,
-    y,
-  }));
+/** Fixed horizontal gap between two interface slots along a provider's top
+ * border (independent of how many slots end up used — no density cap in
+ * this first version, decision: many interfaces just crowd/overlap). */
+const INTERFACE_SLOT_STEP = INTERFACE_NODE_SIZE + 12;
+
+/** Every interface circle's relative y — always the provider's top border,
+ * never anything else. The single source of truth for that constant: used
+ * both to place a newly revealed interface (`interfaceSlotPosition`) and,
+ * in `DiscoverGraph`'s `onNodesChange`, to pin a dragged circle back onto
+ * the line (x free, y locked) after every drag frame. */
+export const INTERFACE_Y = -INTERFACE_NODE_SIZE / 2;
+
+/** Position (relative to the provider's top-left corner) of interface
+ * "slot" `slot` — a fixed, stable index, not a recomputed `i / count`
+ * fraction. This is what lets already-visible interfaces keep their exact
+ * place when siblings are added or removed: each interface keeps whichever
+ * slot it was assigned (tracked by the caller, `DiscoverGraph`'s
+ * `interfaceSlotRef`) for as long as it stays visible, instead of every
+ * interface being repositioned whenever the provider's visible count
+ * changes. Slot 0 sits centered on the top border; further slots extend
+ * outward left/right of it. Purely the initial placement — once revealed,
+ * the user can drag a circle anywhere along the same line (see `INTERFACE_Y`
+ * above), independently of its slot. */
+export function interfaceSlotPosition(slot: number): { x: number; y: number } {
+  const centerX = APP_NODE_WIDTH / 2;
+  // 0, 1, -1, 2, -2, ... so new slots alternate sides around the center
+  // instead of drifting off in one direction only.
+  const offsetIndex = Math.ceil(slot / 2) * (slot % 2 === 0 ? -1 : 1);
+  return {
+    x: centerX + offsetIndex * INTERFACE_SLOT_STEP - INTERFACE_NODE_SIZE / 2,
+    y: INTERFACE_Y,
+  };
 }
 
 function rectsOverlap(

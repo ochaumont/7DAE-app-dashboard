@@ -9,7 +9,13 @@ export type DiscoverContextMenuTarget = {
   variant: "application" | "interface";
   inboundCount: number;
   outboundCount: number;
-  dependenciesCount: number;
+  /** Distinct consumer apps whose edge to a currently-*visible* interface
+   * isn't drawn yet — governs what a click on "Show Consumers" actually
+   * reveals, so it also governs whether the item is disabled. */
+  consumersMissingVisible: number;
+  /** Same, but across every interface this node is attached to (visible or
+   * not) — shown alongside the first as context, not actionable by itself. */
+  consumersMissingTotal: number;
   canHide: boolean;
 };
 
@@ -22,13 +28,19 @@ type Props = {
   onHide: (nodeId: string) => void;
 };
 
+function formatCount(n: number): string {
+  return n < 0 ? "…" : String(n);
+}
+
 function MenuItem({
   label,
   count,
+  secondaryCount,
   onClick,
-}: Readonly<{ label: string; count: number; onClick: () => void }>) {
+}: Readonly<{ label: string; count: number; secondaryCount?: number; onClick: () => void }>) {
   // `count === -1` means "not fetched yet" — stays enabled (clicking is what
-  // triggers the fetch) and shows "…" instead of a number.
+  // triggers the fetch) and shows "…" instead of a number. Only `count` (not
+  // `secondaryCount`) governs whether the action does anything.
   const disabled = count === 0;
   return (
     <button
@@ -40,7 +52,11 @@ function MenuItem({
       }`}
     >
       <span className="text-fg">{label}</span>
-      <span className="text-xs text-muted">{count < 0 ? "…" : count}</span>
+      <span className="text-xs text-muted">
+        {secondaryCount === undefined
+          ? formatCount(count)
+          : `${formatCount(count)} / ${formatCount(secondaryCount)}`}
+      </span>
     </button>
   );
 }
@@ -67,10 +83,15 @@ export default function NodeContextMenu({
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("mousedown", onMouseDown);
+    // Capture phase: React Flow's own node/pane handlers call
+    // `stopPropagation()` on mousedown (for drag/pan) during the bubble
+    // phase, which would otherwise swallow left-clicks on the canvas before
+    // this listener ever saw them. Capture runs before that, so both left-
+    // and right-clicks anywhere outside the menu close it.
+    document.addEventListener("mousedown", onMouseDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousedown", onMouseDown, true);
     };
   }, [target, onClose]);
 
@@ -86,25 +107,27 @@ export default function NodeContextMenu({
       {target.variant === "application" ? (
         <>
           <MenuItem
-            label="Show Interfaces Inbound"
+            label="Show API"
             count={target.inboundCount}
             onClick={() => onShowInterfacesInbound(target.nodeId)}
           />
           <MenuItem
-            label="Show Interfaces Outbound"
-            count={target.outboundCount}
-            onClick={() => onShowInterfacesOutbound(target.nodeId)}
+            label="Show Consumers"
+            count={target.consumersMissingVisible}
+            secondaryCount={target.consumersMissingTotal}
+            onClick={() => onShowDependencies(target.nodeId)}
           />
           <MenuItem
-            label="Show dependencies"
-            count={target.dependenciesCount}
-            onClick={() => onShowDependencies(target.nodeId)}
+            label="Show providers"
+            count={target.outboundCount}
+            onClick={() => onShowInterfacesOutbound(target.nodeId)}
           />
         </>
       ) : (
         <MenuItem
-          label="Show dependencies"
-          count={target.dependenciesCount}
+          label="Show Consumers"
+          count={target.consumersMissingVisible}
+          secondaryCount={target.consumersMissingTotal}
           onClick={() => onShowDependencies(target.nodeId)}
         />
       )}

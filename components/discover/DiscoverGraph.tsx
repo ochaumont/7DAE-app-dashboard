@@ -36,7 +36,8 @@ import {
   APP_NODE_HEIGHT,
   APP_NODE_WIDTH,
   INTERFACE_NODE_SIZE,
-  placeInterfacesAroundProvider,
+  INTERFACE_Y,
+  interfaceSlotPosition,
   placeNewApplicationNode,
 } from "@/lib/discover-graph-layout";
 import ApplicationNodeComponent, { type ApplicationNodeData } from "./ApplicationNode";
@@ -144,6 +145,13 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
   /** Every interface's provider id — the source of truth for "who anchors
    * this circle", independent of node.data (kept lean/render-only). */
   const interfaceProviderRef = useRef<Map<string, string>>(new Map());
+  /** Each interface's stable slot index around its provider (see
+   * `interfaceSlotPosition`) — assigned once and kept even while the
+   * interface is hidden, so re-showing it returns it to the same spot when
+   * that spot is still free. Slots in use are derived from the *currently
+   * visible* nodes at assignment time, never from this map alone, so a
+   * hidden interface's old slot is immediately reusable by another one. */
+  const interfaceSlotRef = useRef<Map<string, number>>(new Map());
   const appInterfacesCache = useRef<Map<string, ApplicationInterfacesNode>>(new Map());
   const interfaceFactSheetCache = useRef<Map<string, InterfaceFactSheet>>(new Map());
 
@@ -173,7 +181,18 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
   );
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
+    setNodes((current) => {
+      const next = applyNodeChanges(changes, current);
+      // Interface circles are draggable, but only along their provider's
+      // top border: every interface's relative y is always this same
+      // constant, so re-pinning it after any change (drag included) lets x
+      // move freely while y never leaves the line.
+      return next.map((n) =>
+        n.type === "interface" && n.position.y !== INTERFACE_Y
+          ? { ...n, position: { ...n.position, y: INTERFACE_Y } }
+          : n,
+      );
+    });
   }, []);
 
   const makeApplicationNode = useCallback(
@@ -208,33 +227,41 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
     };
   }
 
-  /** Adds/repositions every interface currently attached to `providerId`
-   * (existing + `newInterfaces`) evenly along its top border — the only
-   * placement that intentionally moves already-visible circles, since the
-   * spacing depends on the total count (no density limit, decision).
-   * Positions are relative to the provider (xyflow child nodes), so this
-   * never needs the provider's own (possibly dragged) position. */
+  /** Adds any not-yet-visible interfaces of `newInterfaces` around
+   * `providerId`, each taking its own previous slot if that's still free,
+   * otherwise the lowest free slot — never touching the position of
+   * interfaces already visible for this provider (so hiding one and
+   * re-running *Show API* doesn't reshuffle the ones still shown), and never
+   * reusing a slot currently occupied by one of them (so a newly revealed
+   * interface doesn't land on top of an existing one). Positions are
+   * relative to the provider (xyflow child nodes), so none of this needs the
+   * provider's own (possibly dragged) position. */
   const placeProviderInterfaces = useCallback(
     (current: Node[], providerId: string, newInterfaces: DiscoverInterfaceNode[]): Node[] => {
-      const provider = current.find((n) => n.id === providerId);
-      if (!provider) return current;
       const existingIds = new Set(current.map((n) => n.id));
       const toAdd = newInterfaces.filter((i) => !existingIds.has(i.id));
-      for (const i of toAdd) interfaceProviderRef.current.set(i.id, providerId);
-      const allIds = [
-        ...current
-          .filter((n) => interfaceProviderRef.current.get(n.id) === providerId)
-          .map((n) => n.id),
-        ...toAdd.map((i) => i.id),
-      ];
-      if (allIds.length === 0) return current;
-      const positions = placeInterfacesAroundProvider(allIds.length);
-      const positionById = new Map(allIds.map((id, i) => [id, positions[i]]));
-      const repositioned = current.map((n) =>
-        positionById.has(n.id) ? { ...n, position: positionById.get(n.id)! } : n,
-      );
-      const newNodes = toAdd.map((i) => makeInterfaceNode(i, positionById.get(i.id)!, providerId));
-      return [...repositioned, ...newNodes];
+      if (toAdd.length === 0) return current;
+
+      const usedSlots = new Set<number>();
+      for (const n of current) {
+        if (n.type === "interface" && interfaceProviderRef.current.get(n.id) === providerId) {
+          const slot = interfaceSlotRef.current.get(n.id);
+          if (slot !== undefined) usedSlots.add(slot);
+        }
+      }
+      let nextFreeSlot = 0;
+      const newNodes = toAdd.map((iface) => {
+        interfaceProviderRef.current.set(iface.id, providerId);
+        let slot = interfaceSlotRef.current.get(iface.id);
+        if (slot === undefined || usedSlots.has(slot)) {
+          while (usedSlots.has(nextFreeSlot)) nextFreeSlot++;
+          slot = nextFreeSlot;
+        }
+        usedSlots.add(slot);
+        interfaceSlotRef.current.set(iface.id, slot);
+        return makeInterfaceNode(iface, interfaceSlotPosition(slot), providerId);
+      });
+      return [...current, ...newNodes];
     },
     [],
   );
@@ -482,6 +509,52 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
     return result;
   }, [nodes, edgeMeta]);
 
+  /** For an Application: distinct consumer apps whose edge to one of its
+   * provider interfaces isn't currently drawn — split into `visible` (only
+   * counting interfaces that are themselves currently shown as circles) and
+   * `total` (counting across every interface this app provides, shown or
+   * not). Requires `appInterfacesCache`/`interfaceFactSheetCache` to already
+   * hold this app's data (populated by `ensureAppInterfaces`); `null` means
+   * "not fetched yet" — the caller decides whether to trigger a fetch. */
+  const consumerCountsForApplication = useCallback(
+    (appId: string): { visible: number; total: number } | null => {
+      const cached = appInterfacesCache.current.get(appId);
+      if (!cached) return null;
+      const visibleIds = new Set(nodesRef.current.map((n) => n.id));
+      const missingVisible = new Set<string>();
+      const missingTotal = new Set<string>();
+      for (const iface of toInboundInterfaces(cached)) {
+        const fs = interfaceFactSheetCache.current.get(iface.id);
+        if (!fs) continue;
+        const ifaceVisible = visibleIds.has(iface.id);
+        for (const consumer of toInterfaceConsumers(fs).consumers) {
+          const edgeVisible = edgeMetaRef.current.some(
+            (e) => e.interfaceId === iface.id && e.consumerId === consumer.id,
+          );
+          if (edgeVisible) continue;
+          missingTotal.add(consumer.id);
+          if (ifaceVisible) missingVisible.add(consumer.id);
+        }
+      }
+      return { visible: missingVisible.size, total: missingTotal.size };
+    },
+    [],
+  );
+
+  /** Same idea for a single Interface circle — there is only ever one
+   * interface involved, so "visible" and "total" always coincide. */
+  const consumerCountsForInterface = useCallback(
+    (ifaceId: string): { visible: number; total: number } | null => {
+      const fs = interfaceFactSheetCache.current.get(ifaceId);
+      if (!fs || !fs.relInterfaceToConsumerApplication) return null;
+      const missing = toInterfaceConsumers(fs).consumers.filter(
+        (c) => !edgeMetaRef.current.some((e) => e.interfaceId === ifaceId && e.consumerId === c.id),
+      ).length;
+      return { visible: missing, total: missing };
+    },
+    [],
+  );
+
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, n: Node) => {
       event.preventDefault();
@@ -492,19 +565,14 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
 
       if (n.type === "application") {
         const cached = appInterfacesCache.current.get(n.id);
-        let inboundCount = -1;
-        let outboundCount = -1;
-        if (cached) {
-          inboundCount = toInboundInterfaces(cached).filter((i) => !visibleIds.has(i.id)).length;
-          outboundCount = toOutboundInterfacesAndProviders(cached).interfaces.filter(
-            (i) => !visibleIds.has(i.id),
-          ).length;
-        }
-        const hasAttachedVisible =
-          [...interfaceProviderRef.current.entries()].some(
-            ([ifaceId, providerId]) => providerId === n.id && visibleIds.has(ifaceId),
-          ) ||
-          edgeMetaRef.current.some((e) => e.consumerId === n.id && visibleIds.has(e.interfaceId));
+        const inboundCount = cached
+          ? toInboundInterfaces(cached).filter((i) => !visibleIds.has(i.id)).length
+          : -1;
+        const outboundCount = cached
+          ? toOutboundInterfacesAndProviders(cached).interfaces.filter((i) => !visibleIds.has(i.id))
+              .length
+          : -1;
+        const consumerCounts = consumerCountsForApplication(n.id);
         setContextMenu({
           nodeId: n.id,
           x,
@@ -512,18 +580,38 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
           variant: "application",
           inboundCount,
           outboundCount,
-          dependenciesCount: hasAttachedVisible ? 1 : 0,
+          consumersMissingVisible: consumerCounts?.visible ?? -1,
+          consumersMissingTotal: consumerCounts?.total ?? -1,
           canHide: !rootIdsRef.current.has(n.id),
         });
-      } else {
-        const fs = interfaceFactSheetCache.current.get(n.id);
-        let dependenciesCount = -1;
-        if (fs && fs.relInterfaceToConsumerApplication && fs.relInterfaceToProviderApplication) {
-          const missingConsumers = toInterfaceConsumers(fs).consumers.filter(
-            (c) => !visibleIds.has(c.id),
-          ).length;
-          dependenciesCount = missingConsumers;
+        if (!cached) {
+          // Not fetched yet — go get it, then refresh the menu in place if
+          // it's still open on this same node.
+          void ensureAppInterfaces(n.id).then((data) => {
+            setContextMenu((current) => {
+              if (!current || current.nodeId !== n.id || current.variant !== "application") {
+                return current;
+              }
+              const stillVisibleIds = new Set(nodesRef.current.map((nn) => nn.id));
+              const refreshedCounts = consumerCountsForApplication(n.id);
+              return {
+                ...current,
+                inboundCount: data
+                  ? toInboundInterfaces(data).filter((i) => !stillVisibleIds.has(i.id)).length
+                  : current.inboundCount,
+                outboundCount: data
+                  ? toOutboundInterfacesAndProviders(data).interfaces.filter(
+                      (i) => !stillVisibleIds.has(i.id),
+                    ).length
+                  : current.outboundCount,
+                consumersMissingVisible: refreshedCounts?.visible ?? current.consumersMissingVisible,
+                consumersMissingTotal: refreshedCounts?.total ?? current.consumersMissingTotal,
+              };
+            });
+          });
         }
+      } else {
+        const consumerCounts = consumerCountsForInterface(n.id);
         setContextMenu({
           nodeId: n.id,
           x,
@@ -531,12 +619,29 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
           variant: "interface",
           inboundCount: 0,
           outboundCount: 0,
-          dependenciesCount,
+          consumersMissingVisible: consumerCounts?.visible ?? -1,
+          consumersMissingTotal: consumerCounts?.total ?? -1,
           canHide: true,
         });
+        if (!consumerCounts) {
+          void fetchInterfaceDependencies(n.id).then((fetched) => {
+            if (fetched) cacheInterfaceFactSheet(fetched);
+            setContextMenu((current) => {
+              if (!current || current.nodeId !== n.id || current.variant !== "interface") {
+                return current;
+              }
+              const refreshedCounts = consumerCountsForInterface(n.id);
+              return {
+                ...current,
+                consumersMissingVisible: refreshedCounts?.visible ?? current.consumersMissingVisible,
+                consumersMissingTotal: refreshedCounts?.total ?? current.consumersMissingTotal,
+              };
+            });
+          });
+        }
       }
     },
-    [],
+    [consumerCountsForApplication, consumerCountsForInterface, ensureAppInterfaces, cacheInterfaceFactSheet],
   );
 
   return (

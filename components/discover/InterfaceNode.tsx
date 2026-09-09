@@ -9,7 +9,7 @@ export type InterfaceNodeData = {
 };
 
 /** Small circle node — positioned in a ring around its provider's rectangle
- * by `placeInterfacesAroundProvider`. Too small for inline text; the name
+ * by `interfaceSlotPosition`. Too small for inline text; the name
  * (falling back to the protocol, then the node id) is a tooltip only. */
 export default function InterfaceNode({ data }: Readonly<{ data: InterfaceNodeData }>) {
   const label = data.name || data.protocol || "Interface";
