@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Application } from "@/lib/types";
 import { CATEGORY_LABELS } from "@/lib/labels";
 import GripIcon from "@/components/icons/GripIcon";
@@ -127,6 +127,14 @@ export default function ApplicationInfoCard({ application, onClose }: Readonly<P
   const dataObjects = useDragResizeHeight(DATA_OBJECTS_DEFAULT_HEIGHT);
   const description = useDragResizeHeight(DESCRIPTION_DEFAULT_HEIGHT);
   const move = useDragMove();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Pins the card's top edge in place at its default (un-resized) position,
+  // measured once on mount — the card fully remounts each time it opens
+  // (`{infoOpen && <ApplicationInfoCard .../>}` in `ApplicationNode.tsx`),
+  // so this always reflects the default heights. Without it, growing a
+  // section (which sits below a `bottom: 0`-anchored card) would push the
+  // card upward instead of extending it downward.
+  const [anchorTop, setAnchorTop] = useState<number | null>(null);
 
   useEffect(() => {
     dataObjects.reset();
@@ -137,15 +145,21 @@ export default function ApplicationInfoCard({ application, onClose }: Readonly<P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application?.id]);
 
+  useLayoutEffect(() => {
+    if (cardRef.current) setAnchorTop(cardRef.current.offsetTop);
+  }, []);
+
   return (
     <div
+      ref={cardRef}
       role="dialog"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
       className="nodrag absolute z-20 flex w-64 flex-col gap-1.5 rounded-card border border-border bg-surface p-3 shadow-lg"
       style={{
         left: "calc(100% + 8px)",
-        bottom: 0,
+        top: anchorTop ?? undefined,
+        bottom: anchorTop === null ? 0 : undefined,
         transform: `translate(${move.offset.x}px, ${move.offset.y}px)`,
       }}
     >
