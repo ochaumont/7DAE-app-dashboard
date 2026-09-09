@@ -71,6 +71,11 @@ export type ApplicationLifecycle = {
   plan?: string;
 };
 
+export type DataObject = {
+  id: string;
+  name: string;
+};
+
 export type Application = {
   id: string;
   externalId: string;
@@ -108,6 +113,7 @@ export type Application = {
   coverPhoto: CoverPhoto | null;
   photos: Photo[];
   linkedResources: LinkedResourceRef[];
+  dataObjects: DataObject[];
 };
 
 /** Direction of data flow between an application and one of its neighbours,

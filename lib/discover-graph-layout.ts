@@ -2,12 +2,15 @@ import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 
 const elk = new ELK();
 
-/** Fixed footprint of an Application rectangle — kept constant (no
- * user-configurable width, unlike `/depgraph`'s card) so the polar/overlap
- * math below never has to special-case a resized node. */
+/** Default footprint of an Application rectangle — the width the user can
+ * then resize per-node (see `ApplicationNode.tsx`'s resize handles and
+ * `DiscoverGraph`'s `handleResizeApplication`); the height never changes. */
 export const APP_NODE_WIDTH = 200;
 export const APP_NODE_HEIGHT = 60;
 export const INTERFACE_NODE_SIZE = 20;
+/** Floor under which a rectangle can't be shrunk, even with no interface
+ * circles attached — keeps the labels usable. */
+export const MIN_APP_NODE_WIDTH = 120;
 
 /** Root Application rectangles have no known relations between them until
  * expanded — there is nothing for a hub-and-spoke "radial" layout to be
@@ -39,26 +42,66 @@ export async function layoutRootApplications(
  * this first version, decision: many interfaces just crowd/overlap). */
 const INTERFACE_SLOT_STEP = INTERFACE_NODE_SIZE + 12;
 
-/** Every interface circle's relative y — always the provider's top border,
- * never anything else. The single source of truth for that constant: used
- * both to place a newly revealed interface (`interfaceSlotPosition`) and,
- * in `DiscoverGraph`'s `onNodesChange`, to pin a dragged circle back onto
- * the line (x free, y locked) after every drag frame. */
+/** Every interface circle's relative y at its initial reveal — the
+ * provider's top border. Nothing pins it there afterward: the user can then
+ * drag it anywhere along the full perimeter (see
+ * `projectPointToRectanglePerimeter`). */
 export const INTERFACE_Y = -INTERFACE_NODE_SIZE / 2;
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Nearest point to `p` lying exactly on the outline of the `w x h`
+ * rectangle spanning `[0, w] x [0, h]` (its 4 edges, corners included) —
+ * never a point strictly inside or outside it.
+ *
+ * Used in `DiscoverGraph`'s `onNodesChange` to let a dragged interface
+ * circle slide freely around its provider's whole outline instead of being
+ * locked to one side: whatever raw position a drag frame produces, snapping
+ * its center back onto the outline every frame makes the circle glide along
+ * the border in the direction the pointer moves, including around corners
+ * from one side to the next.
+ *
+ * Two cases:
+ * - `p` outside the rectangle: the closest point of the *solid* rectangle
+ *   (clamping each axis independently) is already exactly on its outline —
+ *   no need to test individual edges.
+ * - `p` inside: clamping would return `p` itself, so instead measure the
+ *   distance to each of the 4 edges and snap to the nearest one. */
+export function projectPointToRectanglePerimeter(
+  p: { x: number; y: number },
+  w: number,
+  h: number,
+): { x: number; y: number } {
+  const outside = p.x < 0 || p.x > w || p.y < 0 || p.y > h;
+  if (outside) {
+    return { x: clamp(p.x, 0, w), y: clamp(p.y, 0, h) };
+  }
+  const candidates = [
+    { d: p.y, point: { x: p.x, y: 0 } }, // top edge
+    { d: h - p.y, point: { x: p.x, y: h } }, // bottom edge
+    { d: p.x, point: { x: 0, y: p.y } }, // left edge
+    { d: w - p.x, point: { x: w, y: p.y } }, // right edge
+  ];
+  return candidates.reduce((best, c) => (c.d < best.d ? c : best)).point;
+}
+
 /** Position (relative to the provider's top-left corner) of interface
- * "slot" `slot` — a fixed, stable index, not a recomputed `i / count`
- * fraction. This is what lets already-visible interfaces keep their exact
- * place when siblings are added or removed: each interface keeps whichever
- * slot it was assigned (tracked by the caller, `DiscoverGraph`'s
- * `interfaceSlotRef`) for as long as it stays visible, instead of every
- * interface being repositioned whenever the provider's visible count
- * changes. Slot 0 sits centered on the top border; further slots extend
- * outward left/right of it. Purely the initial placement — once revealed,
- * the user can drag a circle anywhere along the same line (see `INTERFACE_Y`
- * above), independently of its slot. */
-export function interfaceSlotPosition(slot: number): { x: number; y: number } {
-  const centerX = APP_NODE_WIDTH / 2;
+ * "slot" `slot` on a provider whose current width is `width` — a fixed,
+ * stable index, not a recomputed `i / count` fraction. This is what lets
+ * already-visible interfaces keep their exact place when siblings are added
+ * or removed: each interface keeps whichever slot it was assigned (tracked
+ * by the caller, `DiscoverGraph`'s `interfaceSlotRef`) for as long as it
+ * stays visible, instead of every interface being repositioned whenever the
+ * provider's visible count changes. Slot 0 sits centered on the top border;
+ * further slots extend outward left/right of it. Purely the initial
+ * placement — once revealed, the user can drag a circle anywhere along the
+ * whole perimeter (see `projectPointToRectanglePerimeter`), independently of
+ * its slot. `width` must be the provider's *current* (possibly resized)
+ * width so a newly revealed interface centers on it correctly. */
+export function interfaceSlotPosition(slot: number, width: number): { x: number; y: number } {
+  const centerX = width / 2;
   // 0, 1, -1, 2, -2, ... so new slots alternate sides around the center
   // instead of drifting off in one direction only.
   const offsetIndex = Math.ceil(slot / 2) * (slot % 2 === 0 ? -1 : 1);

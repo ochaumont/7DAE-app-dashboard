@@ -111,6 +111,21 @@ query {
               }
             }
           }
+          relApplicationToDataObject {
+            edges {
+              node {
+                factSheet {
+                  id
+                  name
+                  ... on DataObject {
+                    externalId {
+                      externalId
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -129,9 +144,15 @@ export function buildApplicationsQuery(opts: {
   after?: string;
   externalId?: string;
 }): string {
-  const args = ["factSheetType: Application"];
+  const args: string[] = [];
   if (opts.externalId) {
-    args.push(`externalIds: ["externalId/${opts.externalId}"]`);
+    // `filter` and `factSheetType` can't be combined as sibling arguments
+    // on `allFactSheets` — and external-id lookup is its own filter field,
+    // `filter.externalIds` (distinct from `filter.ids`, which resolves
+    // technical ids, the convention used by `leanix-interface-query.ts`).
+    args.push(`filter: { externalIds: ["externalId/${opts.externalId}"] }`);
+  } else {
+    args.push("factSheetType: Application");
   }
   if (opts.after) {
     args.push(`after: "${opts.after}"`);

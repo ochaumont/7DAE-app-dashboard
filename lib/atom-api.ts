@@ -68,6 +68,7 @@ export type ApplicationNode = {
     edges: RelatedFactSheetEdge[];
   } | null;
   relApplicationToPortfolio: { edges: RelatedFactSheetEdge[] } | null;
+  relApplicationToDataObject: { edges: DataObjectEdge[] } | null;
 };
 
 export type AtomErrorKind = "backend-down" | "unauthorized" | "http-error";
@@ -379,8 +380,8 @@ export type InterfaceRelatedApplicationEdge = {
   };
 };
 
-/** One `relInterfaceToDataObject` edge — kept for a future iteration, not
- * rendered by Discover today (spec: Data Objects out of scope). */
+/** One edge of a `DataObject` relation — used both for `relInterfaceToDataObject`
+ * (on an Interface) and `relApplicationToDataObject` (on an Application). */
 export type DataObjectEdge = {
   node: {
     factSheet: {

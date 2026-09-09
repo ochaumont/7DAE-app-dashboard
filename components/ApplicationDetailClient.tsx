@@ -11,6 +11,7 @@ import IdentityTab from "@/components/detail/IdentityTab";
 import AccountabilityTab from "@/components/detail/AccountabilityTab";
 import ComplianceTab from "@/components/detail/ComplianceTab";
 import DocumentationTab from "@/components/detail/DocumentationTab";
+import DataTab from "@/components/detail/DataTab";
 import InContextTab from "@/components/detail/InContextTab";
 import { getApplicationByExternalId } from "@/lib/applications";
 import { SWR_KEY_APPLICATIONS } from "@/lib/useApplications";
@@ -88,6 +89,11 @@ export default function ApplicationDetailClient() {
       id: "documentation",
       label: "Documentation",
       content: <DocumentationTab application={app} />,
+    },
+    {
+      id: "data",
+      label: "DATA",
+      content: <DataTab application={app} />,
     },
     {
       id: "in-context",

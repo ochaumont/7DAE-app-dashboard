@@ -1,6 +1,11 @@
-import type { ApplicationNode, DocumentNode, RelatedFactSheetEdge } from "./atom-api";
+import type {
+  ApplicationNode,
+  DataObjectEdge,
+  DocumentNode,
+  RelatedFactSheetEdge,
+} from "./atom-api";
 import { detectGoogleDocFromUrl, getGoogleDriveEmbedUrl } from "./google-embed";
-import type { Application, Person } from "./types";
+import type { Application, DataObject, Person } from "./types";
 
 /** Unwraps a `rel...` relation's first edge to its target FactSheet — the
  * model only keeps a single portfolio/manager/architect, so later entries
@@ -18,6 +23,17 @@ function firstRelatedFactSheet(
 
 function toPerson(factSheet: { name: string; externalId: string }): Person {
   return { name: factSheet.name, email: factSheet.externalId };
+}
+
+/** Unlike `firstRelatedFactSheet`, an application can have several Data
+ * Objects — every edge with a resolved FactSheet is kept, not just the
+ * first. Only `id`/`name` are needed (Open Question: name only), so no
+ * `externalId` guard here — a Data Object without one still shows its name. */
+function mapDataObjects(rel: { edges: DataObjectEdge[] } | null): DataObject[] {
+  return (rel?.edges ?? [])
+    .map((e) => e.node.factSheet)
+    .filter((fs): fs is NonNullable<typeof fs> => fs !== null)
+    .map((fs) => ({ id: fs.id, name: fs.name?.trim() || "—" }));
 }
 
 const DEFAULT_DOC_NAMES: Record<"slides" | "docs" | "sheets", string> = {
@@ -172,5 +188,6 @@ export function toApplication(node: ApplicationNode): Application {
     gDrivePath: node.gDrivePath?.trim() || null,
     ...toPhotos(node),
     linkedResources: toLinkedResources(node),
+    dataObjects: mapDataObjects(node.relApplicationToDataObject),
   };
 }

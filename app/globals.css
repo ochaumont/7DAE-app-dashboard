@@ -106,3 +106,24 @@ summary:focus-visible {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/*
+ * Discover graph hover trace (components/discover/DiscoverGraph.tsx) —
+ * toggled imperatively on the DOM (not via React state), same technique as
+ * 7DAE-ltm-dashboard's /depgraph, so hovering never forces React Flow to
+ * re-measure node sizes.
+ */
+.react-flow__node,
+.react-flow__edge {
+  transition: opacity 150ms ease;
+}
+.react-flow__node.rf-dim {
+  opacity: 0.25;
+}
+.react-flow__edge.rf-dim {
+  opacity: 0.15;
+}
+.react-flow__edge.rf-emph .react-flow__edge-path {
+  stroke-width: 3px;
+  transition: stroke-width 150ms ease;
+}

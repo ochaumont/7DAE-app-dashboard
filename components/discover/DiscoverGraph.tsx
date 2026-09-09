@@ -3,6 +3,7 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -36,14 +37,17 @@ import {
   APP_NODE_HEIGHT,
   APP_NODE_WIDTH,
   INTERFACE_NODE_SIZE,
-  INTERFACE_Y,
+  MIN_APP_NODE_WIDTH,
   interfaceSlotPosition,
   placeNewApplicationNode,
+  projectPointToRectanglePerimeter,
 } from "@/lib/discover-graph-layout";
 import ApplicationNodeComponent, { type ApplicationNodeData } from "./ApplicationNode";
 import InterfaceNodeComponent, { type InterfaceNodeData } from "./InterfaceNode";
 import GraphEdge, { type GraphEdgeData } from "./GraphEdge";
 import NodeContextMenu, { type DiscoverContextMenuTarget } from "./NodeContextMenu";
+import { ApplicationInfoContext } from "./ApplicationInfoContext";
+import type { Application } from "@/lib/types";
 
 const nodeTypes = { application: ApplicationNodeComponent, interface: InterfaceNodeComponent };
 const edgeTypes = { graphEdge: GraphEdge };
@@ -55,12 +59,15 @@ export type DiscoverGraphHandle = {
 
 type Props = {
   resolveManagerName: (applicationId: string) => string | null;
+  resolveApplication: (applicationId: string) => Application | null;
 };
 
 function boxSizeOf(node: Node): { width: number; height: number } {
-  return node.type === "interface"
-    ? { width: INTERFACE_NODE_SIZE, height: INTERFACE_NODE_SIZE }
-    : { width: APP_NODE_WIDTH, height: APP_NODE_HEIGHT };
+  if (node.type === "interface") {
+    return { width: INTERFACE_NODE_SIZE, height: INTERFACE_NODE_SIZE };
+  }
+  const width = (node.data as ApplicationNodeData | undefined)?.width ?? APP_NODE_WIDTH;
+  return { width, height: APP_NODE_HEIGHT };
 }
 
 /** Interface nodes are children (`parentId`) of their provider so xyflow
@@ -128,13 +135,38 @@ function mergeInterfaceFactSheet(
  * root layout (done by the caller before `addApplication` for the first
  * node, trivially a single point at the origin). */
 const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGraph(
-  { resolveManagerName },
+  { resolveManagerName, resolveApplication },
   ref,
 ) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edgeMeta, setEdgeMeta] = useState<DiscoverEdge[]>([]);
   const [contextMenu, setContextMenu] = useState<DiscoverContextMenuTarget | null>(null);
+  const [openApplicationId, setOpenApplicationId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const closeApplicationInfo = useCallback(() => setOpenApplicationId(null), []);
+  const toggleApplicationInfo = useCallback(
+    (id: string) => setOpenApplicationId((current) => (current === id ? null : id)),
+    [],
+  );
+  const applicationInfoValue = useMemo(
+    () => ({
+      openApplicationId,
+      toggle: toggleApplicationInfo,
+      close: closeApplicationInfo,
+      resolveApplication,
+    }),
+    [openApplicationId, toggleApplicationInfo, closeApplicationInfo, resolveApplication],
+  );
+
+  useEffect(() => {
+    if (!openApplicationId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeApplicationInfo();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [openApplicationId, closeApplicationInfo]);
 
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
@@ -183,17 +215,79 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
-      // Interface circles are draggable, but only along their provider's
-      // top border: every interface's relative y is always this same
-      // constant, so re-pinning it after any change (drag included) lets x
-      // move freely while y never leaves the line.
-      return next.map((n) =>
-        n.type === "interface" && n.position.y !== INTERFACE_Y
-          ? { ...n, position: { ...n.position, y: INTERFACE_Y } }
-          : n,
-      );
+      // Interface circles are draggable, but constrained to slide along
+      // their provider's whole outline (all 4 sides, corners included) —
+      // whatever raw position a drag frame produces, re-snap its center
+      // onto the rectangle's perimeter every time. A no-op for any position
+      // already on the outline (initial placement, or an untouched node).
+      // The provider's *current* (possibly resized) width is looked up per
+      // interface — never the default constant — so the constraint tracks
+      // a rectangle that was just resized in the same gesture.
+      const byId = new Map(next.map((n) => [n.id, n]));
+      const half = INTERFACE_NODE_SIZE / 2;
+      return next.map((n) => {
+        if (n.type !== "interface") return n;
+        const parent = n.parentId ? byId.get(n.parentId) : undefined;
+        const parentWidth = parent ? boxSizeOf(parent).width : APP_NODE_WIDTH;
+        const center = { x: n.position.x + half, y: n.position.y + half };
+        const projected = projectPointToRectanglePerimeter(center, parentWidth, APP_NODE_HEIGHT);
+        const position = { x: projected.x - half, y: projected.y - half };
+        return position.x === n.position.x && position.y === n.position.y
+          ? n
+          : { ...n, position };
+      });
     });
   }, []);
+
+  /** Applies a resize gesture from `ApplicationNode`'s left/right handle:
+   * clamps `proposedWidth` (floor `MIN_APP_NODE_WIDTH`, and never past a
+   * currently-visible interface circle's center on that side — see the plan
+   * for the derivation), then for the left edge only, shifts the rectangle's
+   * own position and compensates every attached circle's relative position
+   * by the same amount so nothing moves on screen except the border. */
+  const handleResizeApplication = useCallback(
+    (appId: string, edge: "left" | "right", proposedWidth: number) => {
+      setNodes((current) => {
+        const node = current.find((n) => n.id === appId);
+        if (!node || node.type !== "application") return current;
+        const oldWidth = (node.data as ApplicationNodeData).width ?? APP_NODE_WIDTH;
+        const circleCenterXs = current
+          .filter((n) => n.type === "interface" && interfaceProviderRef.current.get(n.id) === appId)
+          .map((n) => n.position.x + INTERFACE_NODE_SIZE / 2);
+
+        let newWidth: number;
+        let growth = 0;
+        if (edge === "right") {
+          const minAllowed = Math.max(MIN_APP_NODE_WIDTH, 0, ...circleCenterXs);
+          newWidth = Math.max(proposedWidth, minAllowed);
+        } else {
+          const minCenterX = circleCenterXs.length > 0 ? Math.min(...circleCenterXs) : Infinity;
+          const minGrowth = Math.max(MIN_APP_NODE_WIDTH - oldWidth, -minCenterX);
+          growth = Math.max(proposedWidth - oldWidth, minGrowth);
+          newWidth = oldWidth + growth;
+        }
+
+        return current.map((n) => {
+          if (n.id === appId) {
+            return {
+              ...n,
+              position: growth !== 0 ? { ...n.position, x: n.position.x - growth } : n.position,
+              data: { ...n.data, width: newWidth },
+            };
+          }
+          if (
+            growth !== 0 &&
+            n.type === "interface" &&
+            interfaceProviderRef.current.get(n.id) === appId
+          ) {
+            return { ...n, position: { ...n.position, x: n.position.x + growth } };
+          }
+          return n;
+        });
+      });
+    },
+    [],
+  );
 
   const makeApplicationNode = useCallback(
     (app: DiscoverApplicationNode, position: { x: number; y: number }, isRoot: boolean): Node => ({
@@ -205,9 +299,11 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
         externalId: app.externalId,
         managerName: resolveManagerName(app.id) ?? app.managerName,
         isRoot,
+        width: APP_NODE_WIDTH,
+        onResize: (edge, proposedWidth) => handleResizeApplication(app.id, edge, proposedWidth),
       } satisfies ApplicationNodeData,
     }),
-    [resolveManagerName],
+    [resolveManagerName, handleResizeApplication],
   );
 
   function makeInterfaceNode(
@@ -242,6 +338,8 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
       const toAdd = newInterfaces.filter((i) => !existingIds.has(i.id));
       if (toAdd.length === 0) return current;
 
+      const provider = current.find((n) => n.id === providerId);
+      const providerWidth = provider ? boxSizeOf(provider).width : APP_NODE_WIDTH;
       const usedSlots = new Set<number>();
       for (const n of current) {
         if (n.type === "interface" && interfaceProviderRef.current.get(n.id) === providerId) {
@@ -259,7 +357,7 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
         }
         usedSlots.add(slot);
         interfaceSlotRef.current.set(iface.id, slot);
-        return makeInterfaceNode(iface, interfaceSlotPosition(slot), providerId);
+        return makeInterfaceNode(iface, interfaceSlotPosition(slot, providerWidth), providerId);
       });
       return [...current, ...newNodes];
     },
@@ -644,34 +742,132 @@ const DiscoverGraph = forwardRef<DiscoverGraphHandle, Props>(function DiscoverGr
     [consumerCountsForApplication, consumerCountsForInterface, ensureAppInterfaces, cacheInterfaceFactSheet],
   );
 
+  /** Same DOM-class trace technique as `/depgraph`'s `DependencyGraph.tsx`
+   * (`.rf-dim`/`.rf-emph`, toggled directly on React Flow's own elements via
+   * its `data-id` convention, not React state) — but pinned by a **click**
+   * instead of hover, and cleared by clicking the same node again or
+   * clicking empty canvas (`onPaneClick`). Which nodes/edges stay
+   * highlighted depends on what was clicked:
+   * - an Interface: itself, its provider, its consumers, and the edges to
+   *   those consumers.
+   * - an Application: itself, every currently-visible interface it's
+   *   attached to (as provider or consumer), the consumers of the
+   *   interfaces it provides, the providers of the interfaces it consumes,
+   *   and every edge among those. */
+  const highlightedNodeIdRef = useRef<string | null>(null);
+
+  const clearHighlight = useCallback(() => {
+    containerRef.current
+      ?.querySelectorAll(".rf-dim, .rf-emph")
+      .forEach((el) => el.classList.remove("rf-dim", "rf-emph"));
+    highlightedNodeIdRef.current = null;
+  }, []);
+
+  const applyHighlight = useCallback((nodeId: string) => {
+    const root = containerRef.current;
+    if (!root) return;
+    const connected = new Set<string>([nodeId]);
+    const emphasizedEdgeIds = new Set<string>();
+
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (node?.type === "interface") {
+      const provider = interfaceProviderRef.current.get(nodeId);
+      if (provider) connected.add(provider);
+      for (const e of edgeMetaRef.current) {
+        if (e.interfaceId === nodeId) {
+          connected.add(e.consumerId);
+          emphasizedEdgeIds.add(e.id);
+        }
+      }
+    } else {
+      const ownedInterfaceIds = new Set(
+        [...interfaceProviderRef.current.entries()]
+          .filter(([, providerId]) => providerId === nodeId)
+          .map(([ifaceId]) => ifaceId),
+      );
+      for (const ifaceId of ownedInterfaceIds) connected.add(ifaceId);
+      for (const e of edgeMetaRef.current) {
+        if (ownedInterfaceIds.has(e.interfaceId)) {
+          // An interface this app provides: highlight its consumers too.
+          connected.add(e.consumerId);
+          emphasizedEdgeIds.add(e.id);
+        }
+        if (e.consumerId === nodeId) {
+          // An interface this app consumes: highlight it and its provider.
+          connected.add(e.interfaceId);
+          const provider = interfaceProviderRef.current.get(e.interfaceId);
+          if (provider) connected.add(provider);
+          emphasizedEdgeIds.add(e.id);
+        }
+      }
+    }
+
+    root.querySelectorAll<HTMLElement>(".react-flow__node").forEach((el) => {
+      const id = el.dataset.id;
+      el.classList.toggle("rf-dim", !!id && !connected.has(id));
+    });
+    root.querySelectorAll<SVGElement>(".react-flow__edge").forEach((el) => {
+      const id = el.dataset.id;
+      const isEmphasized = !!id && emphasizedEdgeIds.has(id);
+      el.classList.toggle("rf-dim", !isEmphasized);
+      el.classList.toggle("rf-emph", isEmphasized);
+    });
+    highlightedNodeIdRef.current = nodeId;
+  }, []);
+
+  const handleNodeClick = useCallback(
+    (_: unknown, node: Node) => {
+      // A click on the info icon stops propagation before it ever reaches
+      // here (see `ApplicationNode.tsx`), so this only ever runs for a
+      // click on the rectangle/circle itself — closing an open info card is
+      // correct in every such case ("click elsewhere", decision).
+      closeApplicationInfo();
+      if (highlightedNodeIdRef.current === node.id) {
+        clearHighlight();
+      } else {
+        applyHighlight(node.id);
+      }
+    },
+    [applyHighlight, clearHighlight, closeApplicationInfo],
+  );
+
+  const handlePaneClick = useCallback(() => {
+    clearHighlight();
+    closeApplicationInfo();
+  }, [clearHighlight, closeApplicationInfo]);
+
   return (
-    <div ref={containerRef} className="relative h-full w-full">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        nodesDraggable
-        nodesConnectable={false}
-        elementsSelectable={false}
-        deleteKeyCode={null}
-        fitView
-        fitViewOptions={{ maxZoom: 1 }}
-        onNodesChange={onNodesChange}
-        onNodeContextMenu={onNodeContextMenu}
-      >
-        <Background />
-        <Controls showInteractive={false} />
-      </ReactFlow>
-      <NodeContextMenu
-        target={contextMenu}
-        onClose={() => setContextMenu(null)}
-        onShowInterfacesInbound={handleShowInterfacesInbound}
-        onShowInterfacesOutbound={handleShowInterfacesOutbound}
-        onShowDependencies={handleShowDependencies}
-        onHide={handleHide}
-      />
-    </div>
+    <ApplicationInfoContext.Provider value={applicationInfoValue}>
+      <div ref={containerRef} className="relative h-full w-full">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          nodesDraggable
+          nodesConnectable={false}
+          elementsSelectable={false}
+          deleteKeyCode={null}
+          fitView
+          fitViewOptions={{ maxZoom: 1 }}
+          onNodesChange={onNodesChange}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onNodeContextMenu={onNodeContextMenu}
+        >
+          <Background />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+        <NodeContextMenu
+          target={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onShowInterfacesInbound={handleShowInterfacesInbound}
+          onShowInterfacesOutbound={handleShowInterfacesOutbound}
+          onShowDependencies={handleShowDependencies}
+          onHide={handleHide}
+        />
+      </div>
+    </ApplicationInfoContext.Provider>
   );
 });
 

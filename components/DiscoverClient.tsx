@@ -39,6 +39,10 @@ export default function DiscoverClient() {
     (applicationId: string) => applicationsById.get(applicationId)?.manager?.name ?? null,
     [applicationsById],
   );
+  const resolveApplication = useCallback(
+    (applicationId: string) => applicationsById.get(applicationId) ?? null,
+    [applicationsById],
+  );
 
   const handleSelect = useCallback((app: Application) => {
     setSelected((current) => (current.some((a) => a.id === app.id) ? current : [...current, app]));
@@ -74,7 +78,11 @@ export default function DiscoverClient() {
              * the instant a first application is selected — a conditional
              * mount would make that very first `addApplication` call a
              * no-op, since the ref wouldn't exist until the next render. */}
-            <DiscoverGraph ref={graphRef} resolveManagerName={resolveManagerName} />
+            <DiscoverGraph
+              ref={graphRef}
+              resolveManagerName={resolveManagerName}
+              resolveApplication={resolveApplication}
+            />
             {selected.length === 0 && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <span className="text-sm text-muted">
